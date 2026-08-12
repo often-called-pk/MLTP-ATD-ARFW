@@ -1,0 +1,20 @@
+# MATLAB autosaves / scratch
+*.asv
+*.m~
+slprj/
+*.slxc
+
+# Excel lock files
+~$*
+
+# Auto-generated warm-start caches. MLTP.m solves one via MLTP_initial.m when
+# no cache matches the current circuit + aero setting, so a fresh clone is fine
+# without them. git add -f a specific file to version a known-good warm start.
+Parameters/init_*.mat
+Data/*/initialisation/init_*.mat
+
+# Run-configuration override written by the batch/test harnesses
+runOverride.mat
+
+# Solver output
+solutions/
