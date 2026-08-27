@@ -256,7 +256,7 @@ if getfielddef(vp,'ActAero',0) == 1
         % ARFWr: reactive law, single tracked owner. vpOvr pattern N/A here.
         rlF = fullfile(fileparts(mfilename('fullpath')), 'reactiveLaw.mat');
         assert(exist(rlF,'file') == 2, 'vehParams:reactiveLaw', ...
-            'Parameters/reactiveLaw.mat missing - run fitReactiveLaw(''default'') or fitReactiveLaw()');
+            'Parameters/reactiveLaw.mat missing - it ships with this distribution; restore it.');
         rlS = load(rlF, 'law');
         vp.reactLaw = rlS.law; clear rlF rlS
         if vp.reactLaw.provisional == 1
