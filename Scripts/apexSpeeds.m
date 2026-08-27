@@ -91,8 +91,8 @@ if exist('vp','var') && isstruct(vp) && isfield(vp,'aeroSetting'), aname = char(
 % CSV per (circuit, aeroSetting) forever. Path is anchored to the repo root via
 % mfilename('fullpath') (this file lives in Scripts\, so one fileparts() up is
 % root) rather than pwd-relative, so the write no longer depends on the caller's
-% working directory - the same idiom Functions\apexCsvPath.m already uses on the
-% read side. Functions\apexCsvPath.m is the single reader-side counterpart - keep
+% working directory - the same idiom the reader side uses. Keep the two in step
+% if you move the output location.
 % them in step.
 repoRoot = fileparts(fileparts(mfilename('fullpath')));   % ...\Scripts -> repo root
 apexDir  = fullfile(repoRoot,'solutions','apex');
@@ -139,7 +139,7 @@ if ~isempty(apexDir)
             writetable(T, csv);
             fprintf('apexSpeeds: %d corners written to %s\n', nC, csv);
         catch ME
-            % Loud on purpose: runComparisonBatch's solveOne catches exceptions
+            % Loud on purpose: a batch driver's solve wrapper catches exceptions
             % thrown after a solve completes so a post-processing failure can't
             % discard a finished IPOPT run - which means a plain error() here
             % vanishes with no trace in the batch log. A warning survives that

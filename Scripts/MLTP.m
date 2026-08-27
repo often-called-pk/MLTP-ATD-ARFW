@@ -389,7 +389,7 @@ Sfk = f_sf(Xk,k_knot); % calculate Sf to 'undo' the change of independent variab
 duk_t = duk./repmat(Sfk(1:end-1),nu,1); % calculate time derivatives: du/dt = du/ds * 1/sf = du/ds * ds/dt
 gduk = {duk_t(:)};
 
-%% NLP - ActiveRW velocity-schedule study (docs/plans/2026-07-28-discrete-rw-mandate.md)
+%% NLP - ActiveRW velocity-schedule study
 % ONE OPTIONAL add-on for vp.ActAero == 1, OFF by default (vp.rwMandate == 0, set in
 % userOpts.m):
 %
@@ -422,7 +422,7 @@ gmnd = {}; mnd_lb = []; mnd_ub = [];
 if vp.ActAero == 1 && (vp.rwMandate == 3 || vp.rwMandate == 4 || vp.rwMandate == 5 || vp.rwMandate == 6 || vp.rwMandate == 7 || vp.rwSnap == 1)
     % Wing row LOCATED BY SYMBOL NAME, never hardcoded - it is row 3 in the ATD-off
     % ladder and row 7 with ATD on (same rule and same idiom as the ActiveRW
-    % post-processing further down; see CLAUDE.md's config-matrix section).
+    % post-processing further down; see the config-matrix rule).
     iRW = find(arrayfun(@(kk) strcmp(erase(name(u(kk)),'_n'),'activeAeroRW'), 1:nu), 1);
     assert(~isempty(iRW), 'MLTP: activeAeroRW not found in u');
 
@@ -430,12 +430,12 @@ if vp.ActAero == 1 && (vp.rwMandate == 3 || vp.rwMandate == 4 || vp.rwMandate ==
     % so undo the scaling on the way in and re-apply it on the way out.
     alpha_k     = Uk(iRW,:) * u_s(iRW);          % rear-wing angle at every knot   (deg)
 
-    % vx is state row 1 (CLAUDE.md: [vx vy r n eps Om_fl..Om_rr]) and Xk is normalised,
+    % vx is state row 1 ([vx vy r n eps Om_fl..Om_rr]) and Xk is normalised,
     % so undo x_s on the way in exactly as alpha_k undoes u_s above. Shared by modes 3
     % (two-sided band) and 4 (one-sided floor) - both feed vx/Tbrake into
     % rwVelocityTarget, so this is built once here rather than once per mode.
     vx_k = Xk(1,:) * x_s(1);                                    % (m/s) speed at every knot
-    % Row 2 is T_brake in EVERY ladder (CLAUDE.md: T_motor/T_brake are the first two
+    % Row 2 is T_brake in EVERY ladder (T_motor/T_brake are the first two
     % inputs everywhere) and it is SIGNED, in [-vp.Tbrake_max, 0]. Pass the SIGNED
     % value: rwVelocityTarget's brakeSwitch applies tbSign = -1 itself, deliberately,
     % so the magnitude stays LINEAR in the decision variable - abs() would hand IPOPT
@@ -637,7 +637,12 @@ elseif vp.ActAero == 1 && any(vp.rwMandate == [4 5 6])
     % Surface rows: {alpha trace, u_s scale, alphaMin, aBrake, slew id, label}.
     switch vp.rwMandate
         case 4
-            abSurf = { {alpha_k,   u_s(iRW), -10, +15, 'MLTP:rwDiscSlew', 'RW'} };
+            % The +15 airbrake station is overridable via runOverride's OPT_aBrakeRW
+            % (userOpts.m) for the P1 floor10 control run; absent it this is +15 and
+            % the block is byte-identical to before. Mode 4 ONLY - see that seam's
+            % comment for why 5/6 keep their hardcoded stations. Mb_ab below sizes
+            % itself from (ab_aBrake - ab_alphaMin), so the window follows the station.
+            abSurf = { {alpha_k,   u_s(iRW), -10, getfielddef(vp,'rwDiscABrake',+15), 'MLTP:rwDiscSlew', 'RW'} };
         case 5
             abSurf = { {alpha_k,   u_s(iRW), -25,   0, 'MLTP:fwDiscSlew', 'FW'} };
         case 6
@@ -935,7 +940,7 @@ if vp.ActAero == 1 && any(vp.rwMandate == [6 7])
     clear iFW alpha_afw vx_afw ClF_a ClR_a ClF_0 ClR_0 dClF_fw dClR_fw dCdA_fw
 end
 
-%-active rear wing, velocity-schedule study (docs/plans/2026-07-28-discrete-rw-mandate.md).
+%-active rear wing, velocity-schedule study.
 % Everything here is evaluated by CALLING the very CasADi expression that was put into
 % the NLP (f_rwVel, built in the constraint section above) at the solution - never by
 % restating its formulas - so the reported target, slack and band cannot drift from the
@@ -1020,7 +1025,7 @@ if vp.ActAero == 1 && vp.rwMandate == 3
 
 %-active rear-wing / front-wing, discrete-station airbrake(-analogue) floor
 % study (rwMandate==4 ARWd; ==5 AFWd; ==6 ARFWd, BOTH surfaces -
-% docs/superpowers/specs/2026-08-09-arfwd-combined-wings-design.md).
+% the combined two-wing configuration).
 % Same standing rule as the velocity-schedule block above: each floor row is
 % evaluated by CALLING the very CasADi expression built into the NLP (f_rwDisc /
 % f_fwDisc, constraint section above) at the solution - never by restating its
@@ -1040,7 +1045,10 @@ elseif vp.ActAero == 1 && any(vp.rwMandate == [4 5 6 7])
     % {data field, u row, stations, brake-target station, viol id, slew warn id, label}.
     switch vp.rwMandate
         case 4
-            audT = { {'rwDisc', data.aeroARW.uRow, [-10 0 10 15], 15, 'MLTP:rwDiscViolated', 'MLTP:rwDiscRoundedSlew', 'RW'} };
+            % Stations stay the four PHYSICAL Static settings whatever the floor asks
+            % for; only the coverage target follows OPT_aBrakeRW, so brake coverage
+            % keeps meaning "fraction of braking knots on the MANDATED station".
+            audT = { {'rwDisc', data.aeroARW.uRow, [-10 0 10 15], getfielddef(vp,'rwDiscABrake',15), 'MLTP:rwDiscViolated', 'MLTP:rwDiscRoundedSlew', 'RW'} };
         case 5
             audT = { {'rwDisc', data.aeroARW.uRow, [-25 -20 0],    0, 'MLTP:fwDiscViolated', 'MLTP:fwDiscRoundedSlew', 'FW'} };
         case {6, 7}
@@ -1261,7 +1269,7 @@ end
 % ARFWd ==6, ARFWr ==7 - the latter a cosmetic overlay on the reactive law's
 % continuous solve, not a real floor): rounded staircase(s) pushed as siblings of
 % the continuous input trace(s) just created above (HRP Gear/n_gear dual-trace
-% pattern, docs/hrp-gear-shift-and-framework-diffs.md), so SDI can overlay the pairs.
+% pattern), so SDI can overlay the pairs.
 % Knot-only (s_knot), not s_full, because rwDiscretize (and the floors/bands it
 % audits) only ever operate at the knots. Modes 6/7 push TWO named series -
 % they cannot share a name.
@@ -1346,10 +1354,7 @@ data.sdi.vehicle.T_fr = timeseries(data.vehicle.T_fr, s_knot, 'name', 'T_fr');
 data.sdi.vehicle.T_rl = timeseries(data.vehicle.T_rl, s_knot, 'name', 'T_rl');
 data.sdi.vehicle.T_rr = timeseries(data.vehicle.T_rr, s_knot, 'name', 'T_rr');
 
-% data.sdi.vehicle.ATD_fl = timeseries(data.vehicle.ATD_fl, s_knot, 'name', 'ATD_fl');
-% data.sdi.vehicle.ATD_fr = timeseries(data.vehicle.ATD_fr, s_knot, 'name', 'ATD_fr');
-% data.sdi.vehicle.ATD_rl = timeseries(data.vehicle.ATD_rl, s_knot, 'name', 'ATD_rl');
-% data.sdi.vehicle.ATD_rr = timeseries(data.vehicle.ATD_rr, s_knot, 'name', 'ATD_rr');
+% (per-wheel ATD split signals are not logged to SDI)
 
 %Energy and power
 data.sdi.vehicle.P_motor = timeseries(data.vehicle.P_motor, s_knot, 'name', 'P_motor (kW)');
@@ -1390,4 +1395,3 @@ disp('Lap time:')
 disp(data.t_opt(end))
 
 apexSpeeds;
-run('Functions\validateAeroCollapse.m');

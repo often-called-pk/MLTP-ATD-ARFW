@@ -218,13 +218,8 @@ sf = (1-n*kappa)/(vx*cos(eps)-vy*sin(eps));
 %Define derivatives of the state-space model
 
 % State derivatives equations
-% dvx   = (fx_r + fx_f*cos(delta) - fy_f*sin(delta) + vp.m*vy*r - f_drag  - f_roll_f - f_roll_r  )*sf/vp.m;
-% dvy   = (fy_r + fy_f*cos(delta) + fx_f*sin(delta) - vp.m*vx*r             )*sf/vp.m;
-% dr    = (fy_f*cos(delta)*vp.l_f + fx_f*sin(delta)*vp.l_f - fy_r*vp.l_r)*sf/vp.I_z;
-% dn    = (vx*sin(eps) + vy*cos(eps))*sf;
-% deps  = sf*r-kappa;
-% dOm_f = sf * (T_f - fx_f*vp.Rw)/vp.Jw;
-% dOm_r = sf * (T_r - fx_r*vp.Rw)/vp.Jw;
+% The 0.85 factors on the lateral terms below de-rate cornering grip for this
+% simplified warm-start model; the full model in vehModel.m has no such factor.
 
 dvx   = (fx_r + fx_f*cos(delta) - 0.85*fy_f*sin(delta) + vp.m*vy*r - f_drag  - f_roll_f - f_roll_r  )*sf/vp.m;
 dvy   = (0.85*fy_r + 0.85*fy_f*cos(delta) + fx_f*sin(delta) - vp.m*vx*r             )*sf/vp.m;

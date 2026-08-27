@@ -1,59 +1,29 @@
-% plotSDI.m - Plot results
+% plotSDI.m - plot results in Simulink's Simulation Data Inspector (SDI).
 %
-% Plot signals using Simulink's Simulation Data Inspector (SDI)
+% Signals cover the states, inputs, auxiliary variables, optimised parameters,
+% derived vehicle quantities (slips, tyre forces), selected path constraints for
+% debugging, and the track. Extra 'custom' signals can be calculated and logged
+% in the Postprocessing section of MLTP.m. Retrieve any of them by identifier:
 %
-%-List of available signals
+%   STATES        vx  vy  r  n  eps
+%                 (longitudinal/lateral velocity, yaw rate, normal distance to
+%                  the centreline, angle relative to the centreline tangent)
+%   INPUTS        delta (road-wheel steer), Tdrive, Tbrake (total at the wheels)
+%   AUX           loadTransferX  loadTransferY
+%   VEHICLE       sa_f sa_r   slip angles          fx_f fx_r   longitudinal force
+%                 sx_f sx_r   slip ratios          fy_f fy_r   lateral force
+%                 f_drag      aero drag            fz_f fz_r   vertical force
+%                 f_lift      aero downforce       (tyre forces are local coords)
+%   PARAMETERS    wB (weight distribution)  brkB (brake balance)
+%   TRACK         s  k  x  y
+%   CONSTRAINTS   BrTh      brake/throttle overlap
+%                 ltx_eq    longitudinal load transfer
+%                 lty_eq    lateral load transfer
+%                 gu_*      per-tyre grip utilisation (dimensionless)
+%                 fz_lim_*  per-tyre vertical load limit margin
 %
-% The list of signals is made up of the states, inputs, auxilary variables, 
-% parameters when they are included in the optimmisation, and other quantities
-% relevant for the vehicle simulation like slip angles, slip ratios, or tyre
-% forces. In addition, for debugging or other purposes, some constraints can be 
-% monitored. Data about the track is also logged into the Data Inspector. 'Custom'
-% signals can be created (calculated) and logged in the 'Postprocessing' section of 'MLTP.m'
-%
-% Signals are retrieved using their identifier (as shown in the example below):
-%  STATES
-%   ·vx - longitudinal velocity
-%   ·vy - lateral velocity
-%   ·r - yaw rate
-%   ·n - normal distance to the centre line
-%   ·eps - relative angle to the tangent of the centre line
-%  CONTROL INPUTS
-%   ·delta - steering angle (of the wheel)
-%   ·Tdrive - total driving torque at the wheels
-%   ·Tbrake - total braking torque at the wheels
-%  AUX. VARIABLES
-%   ·loadTransferX - longitudinal load transfer
-%   ·loadTransferY - lateral load transfer
-%  VEHICLE DATA
-%   ·sa_f - slip angle, front tyres
-%   ·sa_r - slip angle, rear tyres
-%   ·sx_f - slip ratio, front tyres
-%   ·sx_r - slip ratio, rear tyres
-%   ·fx_f - longitudinal force, front tyres (local coordinates)
-%   ·fx_r - longitudinal force, rear tyres (local coordinates)
-%   ·fy_f - lateral force, front tyres (local coordinates)
-%   ·fy_r - lateral force, rear tyres (local coordinates)
-%   ·fz_f - vertical force, front tyres (local coordinates)
-%   ·fz_r - vertical force, rear tyres (local coordinates)
-%   ·f_drag - aerodynamic drag force
-%   ·f_lift - aerodynamic downforce
-%  PARAMETERS
-%   ·wB - weight distribution
-%   ·brkB - brake balance
-%  TRACK DATA
-%   ·s - distance along centre line
-%   ·k - curvature
-%   ·x - x coordinate
-%   ·k - y coordinate
-%  PATH CONSTRAINTS
-%   ·BrTh - brake and throttle overlap
-%   ·ltx_eq - longitudinal load transfer
-%   ·lty_eq - lateral load transfer
-%   ·gu_* - per-tyre grip utilisation (dimensionless, report-safe)
-%   ·fz_lim_* - per-tyre vertical load limit margin
-% 
-% *An error might occur if there are existing plots in SDI with a visualization style different from 'time plot'.
+% An error can occur if SDI already holds plots in a visualization style other
+% than 'time plot'.
 
 
 %% Plot in SDI

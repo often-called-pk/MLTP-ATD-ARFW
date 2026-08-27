@@ -1,84 +1,68 @@
 function [alphaDisc, info] = rwDiscretize(s, alpha, stations, slewRate, vx)
-%RWDISCRETIZE Nearest-station rounding of a continuous rear-wing trace, with
-%  dwells too short for the actuator to hold merged into a longer neighbour.
+%RWDISCRETIZE Nearest-station rounding of a continuous wing trace, with dwells
+%  too short for the actuator to hold merged into a longer neighbour.
 %
 %   [alphaDisc, info] = rwDiscretize(s, alpha, stations, slewRate, vx)
 %
-%   Pure-MATLAB post-processing helper (no CasADi): takes a continuous
-%   optimal wing-angle trace alpha(s) - e.g. from a free-ActiveRW solve -
-%   and rounds it onto a discrete set of `stations` (the four Static run
-%   angles [-10 0 10 15] in the live model), the way an actuator with only a
-%   handful of physical detents would actually fly it. A knot-by-knot
-%   nearest-station round can leave single-knot "spike" dwells the actuator
-%   physically cannot reach and leave again before the next commanded
-%   change; the dwell-merge pass folds each such dwell into its longer
-%   neighbour (repeating until every surviving dwell clears the threshold)
-%   and reports how many merges it took plus a set of audit metrics on the
-%   final (post-merge) trace.
+%   Pure-MATLAB post-processing (no CasADi). Takes a continuous optimal wing
+%   angle alpha(s) and rounds it onto a discrete `stations` set, the way an
+%   actuator with a handful of physical detents would fly it. A plain knot-by-
+%   knot round can leave single-knot "spike" dwells the actuator cannot reach
+%   and leave again before the next commanded change; the merge pass folds each
+%   such dwell into its longer neighbour, repeating until every survivor clears
+%   the threshold, and reports the merge count plus audit metrics on the final
+%   trace.
 %
 %   INPUTS
-%     s         independent-variable samples [m] (e.g. distance), strictly
-%               increasing, any shape. numel(s) must equal numel(alpha) and
-%               numel(vx).
+%     s         independent-variable samples [m], strictly increasing.
+%               numel(s) must equal numel(alpha) and numel(vx).
 %     alpha     continuous wing-angle trace [deg], same length as s.
 %     stations  discrete angle set to round onto [deg]. Sorted ascending
 %               internally; need not be sorted or unique on input.
 %     slewRate  actuator slew rate [deg/s], finite positive scalar.
-%     vx        longitudinal speed [m/s] at each sample, same length as s -
-%               converts the actuator's deg/s rate into a metres-needed
-%               distance, evaluated LOCALLY (per dwell / per switch), not as
-%               a single lap-average.
+%     vx        speed [m/s] at each sample, same length as s. Converts deg/s
+%               into a metres-needed distance, evaluated LOCALLY per dwell and
+%               per switch, never as a single lap average.
 %
 %   OUTPUTS
-%     alphaDisc  1xN row vector, each entry one of `stations` - the nearest-
-%                station rounding of `alpha`, after dwell merging.
+%     alphaDisc  1xN row vector, each entry one of `stations`.
 %     info       struct:
 %       stationIdx     1xN index of alphaDisc into (sorted) stations.
-%       nTransitions   number of station changes in the FINAL (post-merge)
-%                      alphaDisc.
-%       dwell          table, one row per surviving dwell: station, sStart,
-%                      sEnd, lengthM (= sEnd - sStart). The last dwell's
-%                      sEnd is the position of the trace's final sample
-%                      (inclusive); every other dwell's sEnd is the
-%                      position of the first sample of the NEXT dwell
-%                      (exclusive boundary) - this matches the length
-%                      convention the merge pass itself audits against, not
-%                      a general-purpose interval spec.
-%       merged         number of merge operations performed (each merge
-%                      absorbs exactly one dwell into a neighbour).
-%       roundedSlewOK  true iff every consecutive pair of transitions in the
-%                      FINAL trace is far enough apart, in metres, for the
-%                      actuator to complete the intervening angle change:
-%                      gap(i) >= |alphaDisc(sw(i)+1) - alphaDisc(sw(i))| /
-%                      slewRate * vx(sw(i)), where sw are the transition
-%                      knots and gap(i) is the distance from switch i to
-%                      switch i+1 (or to the trace end, for the last
-%                      switch). Vacuously true with 0 or 1 transitions.
-%       devRMS         RMS of (alpha - alphaDisc) over all knots [deg].
-%       devMax         max |alpha - alphaDisc| over all knots [deg].
+%       nTransitions   station changes in the FINAL trace.
+%       dwell          table per surviving dwell: station, sStart, sEnd,
+%                      lengthM. The last dwell's sEnd is the final sample
+%                      (inclusive); every other dwell's sEnd is the first
+%                      sample of the NEXT dwell (exclusive). That matches what
+%                      the merge pass audits against - it is not a general
+%                      interval convention.
+%       merged         number of merges performed (one dwell absorbed each).
+%       roundedSlewOK  true iff every consecutive pair of transitions is far
+%                      enough apart, in metres, for the actuator to complete
+%                      the intervening change:
+%                        gap(i) >= |dAlpha(i)|/slewRate * vx(sw(i))
+%                      where sw are the transition knots and gap(i) runs to the
+%                      next switch, or to the trace end for the last. Vacuously
+%                      true with 0 or 1 transitions.
+%       devRMS, devMax RMS and max |alpha - alphaDisc| over all knots [deg].
 %
-%   MERGE RULE. A dwell is flagged too short if its length in metres is less
-%   than 10/slewRate * mean(vx over the dwell) - a flat "one 10-degree
-%   switch each way" assumption. 10 deg is the largest ADJACENT spacing in
-%   the shipped 4-station set [-10 0 10 15] (the 10->15 gap is only 5 deg),
-%   so this threshold is deliberately conservative rather than exact per
-%   transition - it is cheap, symmetric, and does not need to look at which
-%   two stations border a dwell. The shortest flagged dwell is absorbed into
-%   whichever neighbour is longer (ties favour the left/earlier neighbour),
-%   and the pass repeats until no dwell is flagged or only one dwell
-%   remains. A trace with only 2 dwells (1 transition) never enters this
-%   loop at all - by construction there is nothing to merge it INTO without
-%   first picking a direction, and the loop's own exit test (dwell count
-%   <= 2) treats that case as already "merged" as far as it can go. One
-%   consequence, inherited as-is rather than special-cased here: a single
-%   too-short dwell sitting at the very start or end of the WHOLE trace,
-%   with only one neighbour in total, is never merge-checked either (its
-%   dwell count is also 2). This is a known limitation of the merge rule,
-%   not something introduced by this implementation.
+%   MERGE RULE. A dwell is too short if its length in metres is below
+%   10/slewRate * mean(vx over the dwell) - a flat "one 10 deg switch each way"
+%   assumption. 10 deg is the largest ADJACENT spacing in the 4-station set
+%   [-10 0 10 15], so the threshold is deliberately conservative rather than
+%   exact per transition: cheap, symmetric, and it need not know which two
+%   stations border the dwell. The shortest flagged dwell is absorbed into
+%   whichever neighbour is longer (ties favour the earlier one), repeating until
+%   nothing is flagged or one dwell remains.
 %
-%   TIE-BREAK. When alpha sits exactly midway between two stations, MATLAB's
-%   min() returns the FIRST (lower) station - documented behaviour, not
-%   claimed to be "more correct" than rounding up.
+%   KNOWN LIMITATION. A trace with only two dwells never enters the loop - there
+%   is nothing to merge into without first picking a direction, and the exit
+%   test treats that as already merged. So a single too-short dwell at the very
+%   start or end of the whole trace, having only one neighbour, is never
+%   merge-checked.
+%
+%   TIE-BREAK. When alpha sits exactly midway between two stations, min()
+%   returns the FIRST (lower) station. Documented behaviour, not a claim that it
+%   is more correct than rounding up.
 %
 %   See also RWVELOCITYTARGET, RWAERODELTA.
 

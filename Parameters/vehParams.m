@@ -3,7 +3,7 @@
 % RAW INPUTS GO THROUGH setupValue(). Every scalar below that a real car can be
 % measured for reads its value via Functions/setupValue.m, which returns the
 % committed default here unless a filled-in setup sheet
-% (docs/setup-parameters.csv -> Functions/loadSetupSheet.m) supplied one. With no
+% (a filled-in setup sheet, loaded into setupOverride.mat) supplied one. With no
 % setupOverride.mat present the call is a pass-through, so this file's behaviour
 % is byte-identical to before the hook existed.
 %
@@ -22,14 +22,10 @@ vp.ksD   = 0.535;                                                      % fractio
                                                                        % NOT sheet-wired ON PURPOSE: DEAD on the MLTP.m path. Only
                                                                        % vp.ksf_rad/ksr_rad (from the WHEEL RATES below) reach
                                                                        % vp.lty_dis; vp.ksf/ksr/ks built from ksD are read by nothing
-                                                                       % in Scripts/. MLTP_paramOptim.m restores the old chain against
-                                                                       % a different roll-stiffness model. Sheet class DEAD.
+                                                                       % in Scripts/. Sheet class DEAD.
 
 % Aerodynamic input
-% vp.alpha_FL = 10;                                                       % left front wing angle of attack    [0 10]    (deg)
-% vp.alpha_FR = vp.alpha_FL;                                              % right front wing angle of attack   [0 10]    (deg)
-% vp.alpha_RW = 8;                                                        % rear wing angle of attack          [0 30]    (deg)
-% vp.alpha_TW = 0;                                                        % rear wing tilt angle               [-12 12]  (deg)
+% (per-surface wing angles for the unrebuilt ActAero 2/3 configs are not set here)
 
 % Constants
 vp.g = setupValue('g', 9.81);                                           % gravitational acceleration    (m/s^2)
@@ -80,16 +76,16 @@ vp.ks_rad = vp.ksf_rad + vp.ksr_rad;                                    % total 
 vp.Rw = setupValue('Rw', 0.37);                                         % wheel radius                                  (m)
 vp.Jw = setupValue('Jw', 1.7);                                          % wheel rotational inertia                      (kg*m^2) % single value; sheet gives 1.6 F / 1.8 R
 
-% Per-axle Zenvo Pacejka MF5.2 sets -> vp.tyre_f / vp.tyre_r (incl. per-axle
-% rolling-resistance qsy1, which replaces the old scalar vp.f). Confidential
-% supplier data: usable in simulation, never in the thesis appendix; tyre
-% plots in the report need normalised/unlabelled vertical axes.
+% Per-axle Pacejka MF5.2 sets -> vp.tyre_f / vp.tyre_r, including the per-axle
+% rolling-resistance qsy1 that replaces the old scalar vp.f. This file is NOT
+% distributed; supply your own, or copy the synthetic stand-in over it (see
+% README). Plots derived from licensed tyre data should use normalised or
+% unlabelled vertical axes.
 tyreParams_DoNotPublish
 
-% Sheet-wired, but NOT a physical measurement: these two shift the supplier's
-% nominal load, i.e. they re-tune the tyre MODEL. The tyre coefficients themselves
-% stay confidential and unsettable (sheet class TYRE); this is the one tyre-side
-% number a sheet may touch, and MLTP_TyreOptim.m optimises it.
+% Sheet-wired, but NOT a physical measurement: these shift the nominal load, i.e.
+% they re-tune the tyre MODEL. The coefficients themselves stay unsettable
+% (sheet class TYRE); this is the one tyre-side number a sheet may touch.
 vp.Fz0_shift_f = setupValue('Fz0_shift_f', 1);                          % front nominal-load shift about tyre_f.Fz0 (TyreOptim design parameter)
 vp.Fz0_shift_r = setupValue('Fz0_shift_r', 1);                          % rear  nominal-load shift about tyre_r.Fz0 (TyreOptim design parameter)
 
@@ -116,26 +112,24 @@ vp.Fz_abs = setupValue('Fz_abs', 12500);   % absolute structural limit incl. ker
                       % alias of this (sheet class DERIVED), so a sheet can only ever
                       % move the enforced constraint by moving Fz_abs.
 vp.Fz_work = 7100;    % per-tyre working limit on smooth ground (7000-7200 band).
-                      % NOT sheet-wired: DEAD (diagnostic only, see below).
-                      % DEMOTED to a post-hoc diagnostic 2026-07-20: as an NLP path
-                      % constraint it imposed a lateral-g ceiling with no mu term,
+                      % NOT sheet-wired: diagnostic only, not an NLP constraint.
+                      % As a path constraint it imposed a lateral-g ceiling with no
+                      % mu term,
                       %     ay_cap = 2*(Fz_lim - Fz_tot/4)*t/(m*hcg)
-                      % that binds at every speed and TIGHTENS as downforce grows
+                      % which binds at every speed and TIGHTENS as downforce grows
                       % (High aero: 1.41 g at 30 m/s -> 0.58 g at 70 m/s, against a
                       % tyre capable of 1.50 -> 1.99 g; above ~76 m/s the rear tyre
                       % exceeds 7100 N in a straight line). It, not the tyre model,
                       % was setting the lap time, and it is why more downforce made
-                      % the car slower. Query outstanding with Zenvo: is 7100 a peak
-                      % dynamic limit or a static/durability figure? If it is genuinely
-                      % a peak limit, "the car cannot run High aero at speed" is a
-                      % design finding to report, not a constraint to relax.
-vp.Fz_lim = vp.Fz_abs;  % <- ENFORCED value (Scripts/MLTP*.m fz_lim_* path constraints).
-                      % 12500 is the value validated by the fixC/fixD experiments
-                      % (BCN/Mid 119.122 s / 115.216 s, both IPOPT Optimal).
+                      % the car slower. Whether 7100 is a peak dynamic limit or a
+                      % static/durability figure is unresolved; if it is genuinely a
+                      % peak limit, "the car cannot run High aero at speed" is a
+                      % design finding, not a constraint to relax.
+vp.Fz_lim = vp.Fz_abs;  % <- ENFORCED value (Scripts/MLTP.m fz_lim_* path constraints).
                       % Post-process against vp.Fz_work to report exceedance.
 
-%% Aerodynamics - Zenvo ride-height aero map (SportsCar_AeroBalance_ver1_0.xlsx)
-% Baseline CL_f/CL_r come from the confidential ride-height map (MID wing
+%% Aerodynamics - ride-height aero map
+% Baseline CL_f/CL_r come from the ride-height map (MID wing
 % position), quasi-statically collapsed onto speed-dependent coefficient
 % curves by Functions/aeroCollapse.m: aero load compresses the springs ->
 % ride heights drop -> map returns new CL; clamped at the map edges
@@ -148,7 +142,7 @@ vp.Fz_lim = vp.Fz_abs;  % <- ENFORCED value (Scripts/MLTP*.m fz_lim_* path const
 % given has a directory component - a pwd-pinned lookup would look for
 % Parameters\runOverride.mat and silently find nothing.
 % Distinct variable names (vpOvrFile/vpOvr) because this script executes INSIDE its
-% callers' workspaces: Validation/validateRwAero.m and Validation/validateActiveRW.m
+% callers' workspaces: the aero validation gates
 % both keep their own `ovrFile` alive across a vehParams call, and userOpts.m keeps
 % its own `ovr` alive (it reads circuit/vi from it AFTER this script returns) - so
 % neither may be shadowed or cleared here.
@@ -156,29 +150,29 @@ vpOvrFile = fullfile(fileparts(fileparts(mfilename('fullpath'))), 'runOverride.m
 vpOvr = struct; if isfile(vpOvrFile), vpOvr = load(vpOvrFile); end
 clear vpOvrFile
 % vp.ActAero is set by userOpts.m (AeroConfig switch) before this script runs
-% in the normal pipeline. Some standalone callers (e.g. Validation/validateRwAero.m)
+% in the normal pipeline. Some standalone callers (the aero gates)
 % invoke this script directly without going through userOpts.m first, so guard
 % with getfielddef rather than a bare vp.ActAero == 1 - undefined must fall back
 % to the static (0) path, i.e. today's behaviour, unchanged.
 if getfielddef(vp,'ActAero',0) == 1
-    % ActiveRW (docs/plans/2026-07-27-active-rw-control.md): rear-wing angle is a
+    % ActiveRW: rear-wing angle is a
     % continuous NLP control. Own run identity so ARW runs never collide with the
     % static Low/Mid/High/RWp15 init-cache/CSV/solutions naming - this
     % OVERRIDES any vpOvr.aeroSetting override (ActiveRW batch overrides must use a
     % different field, e.g. runOverride.mat's AeroConfig, not aeroSetting).
     %
-    % The velocity-schedule study (docs/rw-velocity-law.md) splits that identity
+    % The velocity-schedule study splits that identity
     % two ways by vp.rwMandate, set in Scripts\userOpts.m BEFORE this script runs,
     % so each variant gets its own init cache, apex CSV and solutions\ folder and
     % neither can collide with the other or with a static setting. The retired
     % braking/force-optimal mandates (modes 1 'ARWm' and 2 'ARWf',
-    % docs/plans/2026-07-28-discrete-rw-mandate.md) were deleted 2026-08-04 and
+    % the discrete/mandated variants) were removed and
     % are rejected in userOpts.m, so only 0, 3, 4, 5 and 6 are reachable. RWDiscrete/
     % vp.rwSnap never entered the name: the snap penalty was a homotopy over
     % vp.rwSnapRho on the SAME problem. It was retired 2026-08-04 too and 'Snap'
     % is now rejected in userOpts.m, so vp.rwSnap is always 0 regardless.
-    % getfielddef, not a bare vp.rwMandate: standalone callers (Validation\*.m) run
-    % this script without going through userOpts.m and must land on the plain 'ARW'.
+    % getfielddef, not a bare vp.rwMandate: standalone callers can run this
+    % script without going through userOpts.m and must land on the plain 'ARW'.
     switch getfielddef(vp,'rwMandate',0)
         case 0, vp.aeroSetting = 'ARW';     % continuous rear-wing control (reference)
         case 3, vp.aeroSetting = 'ARWv';    % + velocity schedule (-10/+10) & +15 deg brake trigger
@@ -192,7 +186,7 @@ if getfielddef(vp,'ActAero',0) == 1
     end
 else
     % PRECEDENCE, deliberate: runOverride.mat  >  setup sheet  >  this default.
-    % runOverride.mat has to win. It is how runComparisonBatch.m sweeps the wing
+    % runOverride.mat has to win. It is how a batch driver sweeps the wing
     % setting run-by-run, so if a setup sheet outranked it every run of a sweep
     % would silently collapse onto one wing angle - the batch would still produce
     % a full-looking comparison table of identical aero. The sheet's job here is
@@ -205,9 +199,10 @@ end
 clear vpOvr
 vp.RHf0 = setupValue('RHf0', 85);  % nominal front ride height at v = 10 m/s   (mm)
 vp.RHr0 = setupValue('RHr0', 95);  % nominal rear  ride height at v = 10 m/s   (mm)
-                                   % PLACEHOLDERS - sheet cell A4 left blank by Zenvo
+                                   % PLACEHOLDERS - not measured; the source sheet left
+                                   % these blank. Both feed aeroCollapse directly.
 vp.Cd0  = setupValue('Cd0', 0.40); % aero sheet, ~constant with ride height
-                                   % (old parameter sheet said 0.32 - query open with Zenvo)
+                                   % (an older sheet said 0.32; unresolved)
 
 % aero map load shared by both the static collapse (below) and the ActiveRW
 % 2-D (alpha,v) map builder (Functions/rwAeroMap2D.m) - same source file,
@@ -215,31 +210,27 @@ vp.Cd0  = setupValue('Cd0', 0.40); % aero sheet, ~constant with ride height
 aeroMapTmp = load(fullfile(fileparts(mfilename('fullpath')), 'aeroMap_Tur.mat'));
 
 if getfielddef(vp,'ActAero',0) == 1
-    % Continuous (alpha, v) rear-wing map: node i of the 5 reduces EXACTLY to
-    % the static setting at that angle (bit-identical col{i}/aeroEvalNum), so
-    % alpha = 0 reproduces static 'Mid' bit-for-bit. See Functions/rwAeroMap2D.m
-    % for the full contract (basis, node provenance, accuracy-off-node audit).
+    % Continuous (alpha, v) rear-wing map: each node reduces EXACTLY to the
+    % static setting at that angle (bit-identical col{i}/aeroEvalNum), so
+    % alpha = 0 reproduces static 'Mid' bit-for-bit. Functions/rwAeroMap2D.m
+    % carries the full contract: basis, node set, and the off-node accuracy
+    % limits.
     %
-    % AFWd (vp.rwMandate == 5) is one exception (ARFWd, == 6, is the other - below): it builds the SAME 2-D map
-    % machinery over the combined FW+RW "unload axis" instead of the rear-wing
-    % sweep, using Functions/fwAeroDelta.m's 3 nodes ([-25 -20 0] deg) via the
-    % TEST-SEAM node/delta override inputs (rwAeroMap2D is node-count generic,
-    % so this needs no new map builder - see
-    % docs/superpowers/plans/2026-08-07-afwd-front-wing.md). The '' basis arg
-    % mirrors Validation/validateFourNodeMap.m's own override-seam call
-    % (empty -> DEFAULT_BASIS = 'hermite3tanh' inside rwAeroMap2D), so both
-    % branches end up on the identical default basis.
+    % Two mandates build the same 2-D machinery over a different axis instead
+    % of the rear-wing sweep. Mode 5 uses the combined front+rear "unload axis"
+    % (3 nodes, Functions/fwAeroDelta.m); mode 6 adds a front-wing-only delta
+    % layer (Functions/fwOnlyDelta.m). Both go through rwAeroMap2D's node/delta
+    % override inputs - it is node-count generic, so neither needs a new map
+    % builder. The empty basis argument selects rwAeroMap2D's own default
+    % ('hermite3tanh'), so every branch lands on the identical basis.
     %
-    % liftMode = 'additive' (user decision, adjudicated 2026-08-07 after the
-    % default 'collapse' path was found to throw for these nodes - the -25 deg
-    % node never reaches aeroCollapse's ride-height clamp on either axle,
-    % aeroCollapse:nanFit, and -20 deg fails the fit-residual gate,
-    % aeroCollapse:fitResidual; see docs/superpowers/specs/2026-08-07-afwd-
-    % front-wing-design.md S3 amendment). Layers each node's lift delta as a
-    % constant shift over a single shared node-0-baseline collapse instead of
-    % re-solving the ride-height fixed point per node - Zenvo's own dashed
-    % bounding-case approximation. aeroCollapse.m and fwAeroDelta.m are both
-    % UNCHANGED by this - see Functions/rwAeroMap2D.m's liftMode doc.
+    % liftMode = 'additive' is required for the mode-5 nodes: the -25 deg node
+    % never reaches aeroCollapse's ride-height clamp on either axle
+    % (aeroCollapse:nanFit) and -20 deg fails the fit-residual gate
+    % (aeroCollapse:fitResidual). It layers each node's lift delta as a constant
+    % shift over one shared baseline collapse instead of re-solving the
+    % ride-height fixed point per node - a bounding approximation. aeroCollapse.m
+    % and fwAeroDelta.m are both UNCHANGED by it.
     if getfielddef(vp,'rwMandate',0) == 5
         fwNodes = [-25 -20 0];
         [dClfA_fw, dClrA_fw, dCdA_fw] = fwAeroDelta(fwNodes);
@@ -284,7 +275,7 @@ if getfielddef(vp,'ActAero',0) == 1
     vp.aeroBal = clf_ref/(clf_ref + clr_ref);
     clear v_ref clf_ref clr_ref dCdA_ref
 else
-    % Rear-wing angle sweep (aerotak slide 19, digitised 2026-07-23). The named
+    % Rear-wing angle sweep, digitised from the supplier data. The named
     % pipeline settings select a discrete rear-wing angle of attack; Low/Mid/High
     % are kept as aliases so batch/report code keeps working, and Mid == 0 deg is
     % the force-identical reproduction of the previous Mid model.
@@ -301,7 +292,7 @@ else
         % range is [-10, 15] - rwAeroDelta(20) is an error, not a value. The raw
         % digitised slide row survives only as prose in that file's header, kept for
         % provenance. See
-        % docs/superpowers/specs/2026-08-05-four-node-map-and-report-fixes-design.md.
+        % the four-node map.
         otherwise
             error('vehParams:aeroSetting', ...
                 'unknown vp.aeroSetting ''%s'' (expected Low|Mid|High|RWp15)', vp.aeroSetting);

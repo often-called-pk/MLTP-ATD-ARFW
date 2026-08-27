@@ -4,53 +4,49 @@ function [ClF, ClR, dCdA] = rwAeroMapEvalNum(aeroARW, alpha, vx, aeroAFW, alphaF
 %   [ClF, ClR, dCdA] = rwAeroMapEvalNum(aeroARW, alpha, vx)
 %   [ClF, ClR, dCdA] = rwAeroMapEvalNum(aeroARW, alpha, vx, aeroAFW, alphaFW)
 %
-%   The 5-arg form adds the ARFWd (vp.rwMandate == 6) FW additive delta layer:
-%   aeroAFW is a liftMode='additive' map from Functions/rwAeroMap2D.m (nodes
-%   [-25 -20 0], Functions/fwOnlyDelta.m deltas), consumed as a DELTA layer
-%   only - its per-node speed curves are never evaluated (the RW map owns the
-%   ride-height lift). ClF/ClR gain sum_i L_i(alphaFW)*dClFadd/dClRadd(i)
-%   (already /vp.A at map build); dCdA gains sum_i L_i(alphaFW)*aeroAFW.dCdA(i)
-%   - still a Cd*A PRODUCT, the caller divides by vp.A exactly once. alphaFW
-%   must be scalar or match size(alpha) after expansion; outside the FW node
-%   span it errors rwAeroMapEvalNum:rangeFW (same 1e-6 deg clamp slack).
+%   The 5-arg form adds the two-wing front-wing delta layer: aeroAFW is a
+%   liftMode='additive' map from Functions/rwAeroMap2D.m, consumed as a DELTA
+%   layer only - its per-node speed curves are never evaluated, because the RW
+%   map owns the ride-height lift. ClF/ClR gain sum_i L_i(alphaFW)*dCl*add(i)
+%   (already divided by vp.A at map build); dCdA gains
+%   sum_i L_i(alphaFW)*aeroAFW.dCdA(i), still a Cd*A PRODUCT that the caller
+%   divides by vp.A exactly once. alphaFW must be scalar or match size(alpha)
+%   after expansion; outside the FW node span it errors rwAeroMapEvalNum:rangeFW.
 %
 %   aeroARW  struct from Functions/rwAeroMap2D.m
-%   alpha    rear-wing angle [deg], in [alphaNodes(1), alphaNodes(end)]
-%            = [-10, +15] as shipped (+20 dropped 2026-08-05)
+%   alpha    rear-wing angle [deg], within the map's node span ([-10, +15])
 %   vx       longitudinal speed [m/s]
 %            alpha and vx may be any equal-sized arrays, or either may be a
 %            scalar (expanded against the other). Outputs take the common size.
 %
-%   ClF, ClR  TOTAL effective per-axle lift coefficients at (alpha, vx) - i.e.
-%             the ride-height-collapsed map value WITH the rear-wing-angle
-%             increment already inside it, exactly what aeroEvalNum returns for
-%             a static setting. Sign convention unchanged: NEGATIVE = DOWNFORCE.
-%             They are per-axle coefficients on the fixed reference area vp.A,
-%             so the axle downforce is -0.5*rho*vp.A*vx^2*ClF (resp. ClR) and
-%             the model's left/right split stays 0.5*(ClF + ClR) per side.
+%   ClF, ClR  TOTAL effective per-axle lift coefficients at (alpha, vx): the
+%             ride-height-collapsed map value with the wing-angle increment
+%             already inside it, exactly what aeroEvalNum returns for a static
+%             setting. NEGATIVE = DOWNFORCE. They are coefficients on the fixed
+%             reference area vp.A, so axle downforce is -0.5*rho*vp.A*vx^2*ClF
+%             and the left/right split stays 0.5*(ClF + ClR) per side.
 %   dCdA      drag delta PRODUCT Cd*A [m^2] relative to the 0 deg wing, NOT
-%             divided by the reference area. The caller does what
-%             Parameters/vehParams.m does with rwAeroDelta's third output:
+%             divided by the reference area. The caller does
 %                 vp.Cd = vp.Cd0 + dCdA/vp.A;
 %             and routes the increment through f_dragRW at vp.hw. Exactly 0 at
 %             alpha = 0.
 %
-%   This is the NUMERIC TWIN of the SX evaluator that Scripts/vehModel.m carries
-%   for vp.ActAero == 1 - KEEP THE FORMULAS IDENTICAL (same rule as
-%   aeroEvalNum/aeroEvalSX and tyreMFnum/tyreMF). The evaluation is
+%   This is the NUMERIC TWIN of the SX evaluator in Scripts/vehModel.m for
+%   vp.ActAero == 1 - KEEP THE FORMULAS IDENTICAL (same rule as
+%   aeroEvalNum/aeroEvalSX). The evaluation is
 %
 %       [clf_i, clr_i] = aeroEvalNum(aeroARW.col{i}, vx)      i = 1..n
 %       ClF  = sum_i L_i(alpha)*(clf_i + aeroARW.dClFadd(i))
 %       ClR  = sum_i L_i(alpha)*(clr_i + aeroARW.dClRadd(i))
 %       dCdA = sum_i L_i(alpha)*aeroARW.dCdA(i)               (alpha only)
-%   .dClFadd/.dClRadd are the liftMode='additive' constant lift shifts (see
-%   Functions/rwAeroMap2D.m); they are exactly zeros(1,n) under the default
-%   liftMode='collapse', so this reduces to the original formula bit-for-bit
-%   for every standard (non-override) map.
 %
-%   with the cardinal basis L_i defined by aeroARW.basis. For the shipped
-%   default basis.kind = 'hermite3tanh' (knots = alphaNodes, n = numel(knots),
-%   wb = 0.3 deg, C = (n-1) x 4 x n cubic coefficients, highest order first, in
+%   .dClFadd/.dClRadd are the liftMode='additive' constant lift shifts, exactly
+%   zero under the default liftMode='collapse', so this reduces to the original
+%   formula bit-for-bit for every standard map.
+%
+%   The cardinal basis L_i is defined by aeroARW.basis. For the default
+%   basis.kind = 'hermite3tanh' (knots = alphaNodes, n = numel(knots), wb = 0.3
+%   deg, C = (n-1) x 4 x n cubic coefficients, highest order first, in
 %   t = alpha - knots(j)):
 %
 %       s_j     = 0.5*(1 + tanh((alpha - knots(j+1))/wb))   j = 1..n-2
@@ -59,37 +55,31 @@ function [ClF, ClR, dCdA] = rwAeroMapEvalNum(aeroARW, alpha, vx, aeroAFW, alphaF
 %       w_{n-1} = s_1*...*s_{n-2}
 %       L_i     = sum_{j=1..n-1} w_j * horner(C(j,:,i), alpha - knots(j))
 %
-%   The switches sit on the INTERIOR knots only, knots(2:end-1): n-2 switches
-%   and n-1 segments, so the stack follows the node count. Functions/
-%   rwBasisWeights.m owns the weights for this file; the SX twin re-implements
-%   the same formula inline. At the shipped n = 4 this is a 2-switch/3-weight
-%   stack [1-s_1, s_1*(1-s_2), s_1*s_2]; at n = 5 it was the familiar
-%   3-switch/4-weight stack [1-s_1, s_1*(1-s_2), s_1*s_2*(1-s_3), s_1*s_2*s_3].
+%   Switches sit on the INTERIOR knots only, so the stack follows the node
+%   count. Functions/rwBasisWeights.m owns these weights for this file; the SX
+%   twin re-implements the same formula inline.
 %
-%   and for basis.kind = 'lagrange4' (anorm = 10, L = n x n coefficients of the
+%   For basis.kind = 'lagrange4' (anorm = 10, L = n x n coefficients of the
 %   degree-(n-1) cardinal polynomials, highest order first):
 %
 %       L_i = horner(basis.L(i,:), alpha/basis.anorm)
 %
-%   horner(p,x) = ((...(p(1)*x + p(2))*x + ...)*x + p(end)), highest order
-%   first, identical to hornEval in Functions/aeroEvalNum.m.
+%   horner(p,x) = ((...(p(1)*x + p(2))*x + ...)*x + p(end)), identical to
+%   hornEval in Functions/aeroEvalNum.m.
 %
 %   At alpha == alphaNodes(i) the basis collapses to the i-th unit vector, so
-%   the result IS the static setting's aeroEvalNum(col{i}, vx) - measured to
-%   5.8e-15 over v = 10:90 on the FIVE-node map; the shipped four-node build
-%   measures 2.9e-15, at the +15 endpoint node (the hermite3tanh tanh tails,
-%   ~3e-15 leakage x the neighbouring segment's extrapolated cubic, are the
-%   only slack). alpha = 0
-%   therefore reproduces the static 'Mid' model to ~1e-16, i.e. to roundoff of
-%   the Horner evaluation, but NOT to a bit-identical 0 (the stored node array
-%   aeroARW.dCdA(2) IS an exact 0; the interpolated dCdA(0) is ~3e-17 m^2 =
-%   1e-13 N of drag at 80 m/s).
+%   the result IS that static setting's aeroEvalNum(col{i}, vx) - measured to
+%   2.9e-15 over v = 10:90, the tanh tails being the only slack. alpha = 0
+%   therefore reproduces the static 'Mid' model to ~1e-16, i.e. to Horner
+%   roundoff, but NOT to a bit-identical zero: the stored node value
+%   aeroARW.dCdA(2) is an exact 0, while the interpolated dCdA(0) is ~3e-17 m^2,
+%   which is 1e-13 N of drag at 80 m/s.
 %
-%   RANGE: alpha outside the map's node span ([-10, +15] as shipped, read from
-%   aeroARW.alphaNodes - never a literal) is an error(). A slack of 1e-6 deg is
-%   tolerated and clamped first, because IPOPT satisfies variable bounds only to
-%   its bound_relax_factor and post-processing would otherwise blow up on a
-%   solution that is 1e-9 deg outside its own bound.
+%   RANGE: alpha outside the map's node span (read from aeroARW.alphaNodes,
+%   never a literal) is an error. A slack of 1e-6 deg is tolerated and clamped
+%   first, because IPOPT satisfies variable bounds only to its
+%   bound_relax_factor and post-processing would otherwise blow up on a solution
+%   sitting 1e-9 deg outside its own bound.
 %
 %   See also RWAEROMAP2D, AEROEVALNUM, RWAERODELTA.
 

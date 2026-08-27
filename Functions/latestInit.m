@@ -7,25 +7,16 @@ function f = latestInit(circuit, aeroSetting, nu)
 %   under Data\<circuit>\initialisation\. The timestamp format sorts
 %   lexicographically == chronologically, so a name sort beats file mtime
 %   (which a copy or a checkout would perturb).
-%   <token> is zenvoMF52rw4n for every ActiveRW variant EXCEPT AFWd
-%   (zenvoMF52fw3n) and ARFWd (zenvoMF52arfw, two-wing model) - see below.
-%   The zenvoMF52rw4n token is the model version: caches generated under an older
-%   model (generic tyre, the pre-RW-angle 'zenvoMF52' aero, or the five-node
-%   'zenvoMF52rw' ActiveRW map) deliberately no longer match the glob (a stale
-%   warm start is slow and risks IPOPT infeasibility) - they are regenerated
-%   instead. Bumped 2026-08-05 from 'zenvoMF52rw' to 'zenvoMF52rw4n' when the
-%   ActiveRW map was cut from five nodes to four and the free wing's control
-%   bound was capped at +15 deg (was +20): the four surviving five-node caches
-%   (BCN/NUR x ARW/ARWv) carry alpha knots up to +20, outside the new bound, so
-%   they must not warm-start the new model - see
-%   docs/superpowers/specs/2026-08-05-four-node-map-and-report-fixes-design.md.
-%   Bump the token again if the tyre or aero model changes again.
-%   zenvoMF52fw3n (added 2026-08-07) is AFWd's OWN token, not a bump of the RW
-%   one: AFWd's vp.aeroARW is a 3-node map over Functions/fwAeroDelta.m's
-%   combined FW+RW "unload axis" ([-25 -20 0] deg), an entirely different model
-%   to the 4-node rear-wing sweep every other ActiveRW variant shares, so an
-%   AFWd cache must never satisfy an ARW/ARWv/ARWd glob or vice versa - see
-%   docs/superpowers/plans/2026-08-07-afwd-front-wing.md.
+%   <token> is the MODEL VERSION, not a date: caches built under an older tyre or
+%   aero model deliberately fail to match the glob and are regenerated, because a
+%   stale warm start is slow and risks IPOPT infeasibility. Bump the token
+%   whenever the tyre or aero model changes.
+%
+%   Most ActiveRW variants share one token. Two do not, and must not: AFWd and
+%   ARFWd/ARFWr are different aero models (a 3-node front-wing axis and a two-wing
+%   map) rather than variants of the 4-node rear-wing sweep, so their caches must
+%   never satisfy each other's glob. The literals live at the bottom of this file
+%   and are mirrored in Scripts/MLTP_initial.m - keep the two in step.
 %
 %   THE nu FILTER (why it exists). vp.aeroSetting does NOT encode the drivetrain:
 %   an ARWm run is 'ARWm' whether it is AWD (nu=4) or ATD (nu=8). Without this

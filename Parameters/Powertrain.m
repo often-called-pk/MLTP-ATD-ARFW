@@ -1,4 +1,4 @@
-%% POWERTRAIN - Zenvo Aurora Tur (lumped single-machine equivalent for MLTP)
+%% POWERTRAIN - lumped single-machine equivalent for MLTP
 %
 % Architecture (Zenvo website / parameter sheet, cross-checked):
 %   - 6.6L quad-turbo V12, ~1,250 bhp claim, 1,200 Nm plateau, ~9,800 rpm redline
@@ -22,9 +22,9 @@ if ~exist('vp','var') || ~isfield(vp,'Rw')
            'Reorder userOpts.m so vehParams.m runs BEFORE Powertrain.m.']);
 end
 
-%% ICE - digitised torque map (from Zenvo sheet image; see ice_torque_map.csv)
+%% ICE - digitised torque map (from the manufacturer parameter sheet)
 % The scalars below read through Functions/setupValue.m so a filled-in setup sheet
-% (docs/setup-parameters.csv -> Functions/loadSetupSheet.m) can drive a run; with
+% (a filled-in setup sheet, loaded into setupOverride.mat) can drive a run; with
 % no setupOverride.mat present each call returns the committed default unchanged.
 % The two MAPS (pt.ICE.rpm/T, pt.EM.rpm/P) are deliberately NOT wired: they are
 % vectors, not scalars, and nothing outside this file reads them - the NLP sees

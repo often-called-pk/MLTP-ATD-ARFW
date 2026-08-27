@@ -8,7 +8,7 @@ function w = rwBasisWeights(knots, wb, alpha)
 %
 %   WHY THIS EXISTS. The same stack was written out longhand in FOUR places -
 %   rwAeroMap2D's basisEval, rwAeroMapEvalNum's rwBasisNum, the SX block in
-%   vehModel.m, and check 4a of Validation/validateActiveRW.m - and all four
+%   vehModel.m, and one of the validation gates - and all four
 %   hardcoded THREE switches and FOUR weights, which is correct only for a
 %   five-node map. At four nodes the old code read knots(4), which is then the
 %   ENDPOINT rather than an interior knot, so the last weight became

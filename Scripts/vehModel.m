@@ -5,9 +5,7 @@
  
 import casadi.*
 
-% Import polynomial coefficients for aerodynamic functions
-% load('D:\MATLAB_Projects\MLTP_AA_ATD\Aerodynamics\DATA_AA.mat');
-% (dead pre-computation block removed: it referenced vx before its SX
+% (dead aero pre-computation block removed: it referenced vx before its SX
 %  definition and its bare Cl_*/Cd_tot outputs were never consumed - the
 %  live aero coefficients are built in the ActAero ladder below)
 
@@ -157,60 +155,45 @@ if vp.ActAero == 1
     activeAeroRW_n = SX.sym('activeAeroRW_n');
     activeAeroRW_s = 30;
     activeAeroRW = activeAeroRW_s * activeAeroRW_n;
-    % Upper bound is +15 deg as of 2026-08-05: the map's last node is +15, and the
-    % evaluator must not be asked to extrapolate past it. ARW previously sat AT the
-    % old +20 bound for 0.55 % (BCN) / 0.76 % (NUR) of the lap, so this genuinely
-    % removes the free wing's airbrake and ARW will be slower than its 5-node lap.
-    activeAeroRW_lim = 1/activeAeroRW_s * [-10 15];      % ActiveRW: the rear-wing angle of attack is a
-                                                         % continuous control over the DIGITISED sweep
-                                                         % range [-10, +15] deg (= rwAeroMap2D's node
-                                                         % span; the map errors outside it). The scale
-                                                         % stays 30, so the normalised range is
+    % Upper bound is +15 deg: that is the aero map's last node, and the evaluator
+    % must not be asked to extrapolate past it.
+    activeAeroRW_lim = 1/activeAeroRW_s * [-10 15];      % rear-wing angle of attack is a
+                                                         % continuous control over the digitised
+                                                         % sweep range [-10, +15] deg (= rwAeroMap2D's
+                                                         % node span; the map errors outside it). The
+                                                         % scale stays 30, so the normalised range is
                                                          % [-1/3, +1/2] - deliberate, the control keeps
-                                                         % its name/scale for the userOpts + MLTP ladders.
-    % The Velocity variant (vp.rwMandate == 3) ELIMINATES the +20 deg setting, so the
-    % control's own upper bound comes down to its airbrake angle. Dropping the +20
-    % well from the snap penalty is not enough on its own: the penalty only reshapes
-    % where the optimum sits, and the first ARWv solve duly ran the wing to +20.00 deg
-    % - a setting its own schedule never requests. Making it a BOUND is what actually
-    % removes the state. Lower bound and scale are untouched, so nu, the ladders and
-    % the map's valid span are all unaffected.
+                                                         % its name and scale for the userOpts and
+                                                         % MLTP ladders.
     %
-    % SINCE 2026-08-05 THIS CLAMP IS A NO-OP ON THE DEFAULT PATH. The mode-0 bound
-    % above is now +15 and alphaMax defaults to aBrake = +15, so it re-assigns the
-    % same number. It is kept because it is an ASSIGNMENT, not a min(): it is still
-    % what makes the ARWv bound track alphaMax if either value is ever moved, and
-    % Validation/validateRWVelocity.m's D3 leg grades aBrake <= +15 through it.
+    % The mode-3 clamp below is a NO-OP on the default path: the bound above is
+    % already +15 and alphaMax defaults to aBrake = +15, so it re-assigns the same
+    % number. It is kept because it is an ASSIGNMENT rather than a min(), which is
+    % what makes the bound track alphaMax if either value is ever moved.
     %
-    % alphaMax is the wing's REACHABLE upper bound and defaults to aBrake, but the
-    % two are deliberately separate fields. "What the schedule asks for" and "what
-    % the wing can physically reach" are different quantities, and collapsing them
-    % is precisely what let the first ARWv solve run to +20 deg while its own
-    % schedule never requested more than +15: the +20 well had been dropped from
-    % the snap penalty, which discourages a state without removing it. Keeping the
-    % bound as its own field also makes that defect reproducible on demand
-    % (rwVelAlphaMax = 20 with aBrake = 15 recreates it exactly) instead of being
-    % a claim in a commit message.
+    % alphaMax is the wing's REACHABLE bound and defaults to aBrake, but the two
+    % are deliberately separate fields: "what the schedule asks for" and "what the
+    % wing can physically reach" are different quantities. Collapsing them once let
+    % a solve run the wing to +20 deg while its own schedule never asked for more
+    % than +15 - a penalty discourages a state without removing it, only a bound
+    % removes it.
     %
-    % WARNING - THAT REPRODUCTION RECIPE IS NOW UNSAFE, AND IT FAILS QUIETLY.
-    % Because this is an assignment it can RAISE the bound as well as lower it, and
-    % since 2026-08-05 the aero map's last node is +15. rwVelAlphaMax > 15 therefore
-    % drives the wing past the map's node span, and NOTHING ON THE SOLVE PATH STOPS
-    % IT: the SX evaluator below (the ActAero==1 block) carries no range guard, so
-    % it silently extrapolates the top segment's cubic for the whole multi-hour
-    % solve, and Scripts/MLTP.m's post-processing only WARNS and clamps
-    % (search: alphaMin/alphaMax) after the fact. The numeric twin
-    % Functions/rwAeroMapEvalNum.m does error, but the solve never calls it. Net
-    % effect: a plausible-looking but wrong lap plus one warning, which is worse
-    % than the fail-fast this recipe used to give. If you need the +20 defect back,
-    % rebuild the map with the five-node list too - do not raise this bound alone.
+    % WARNING - because this is an assignment it can RAISE the bound as well as
+    % lower it, and the map's last node is +15. Setting rwVelAlphaMax > 15 drives
+    % the wing past the node span, and NOTHING ON THE SOLVE PATH STOPS IT: the SX
+    % evaluator below carries no range guard, so it silently extrapolates the top
+    % segment's cubic for the whole solve, and MLTP.m's post-processing only warns
+    % and clamps afterwards. The numeric twin does error, but the solve never calls
+    % it. The result is a plausible-looking but wrong lap plus one warning. If you
+    % need a wider range, rebuild the map with more nodes - do not raise this bound
+    % alone.
     if getfielddef(vp,'rwMandate',0) == 3
         activeAeroRW_lim(2) = 1/activeAeroRW_s * ...
             getfielddef(vp.rwVelOpts, 'alphaMax', getfielddef(vp.rwVelOpts,'aBrake',15));
     elseif getfielddef(vp,'rwMandate',0) == 5
         % AFWd: the control keeps the name/scale activeAeroRW/activeAeroRW_s for
         % the u/u_lim ladders and MLTP.m's uRow discovery (see
-        % docs/superpowers/plans/2026-08-07-afwd-front-wing.md), but it is the
+        % the front-wing configuration), but it is the
         % combined FW+RW "unload axis" over Functions/fwAeroDelta.m's digitised
         % range [-25, 0] deg (== rwAeroMap2D's node span for this mode, built in
         % Parameters/vehParams.m), not the rear-wing sweep's [-10, 15]. Full
@@ -408,7 +391,7 @@ elseif vp.ActAero == 1
 % Sign convention unchanged: NEGATIVE CL = DOWNFORCE. dCdA is the opposite
 % polarity in spirit (POSITIVE = more drag) and is a Cd*A product, hence /vp.A.
 % NUMERIC TWIN: Functions/rwAeroMapEvalNum.m - KEEP THE FORMULAS IDENTICAL
-% (same rule as aeroEvalSX/aeroEvalNum and tyreMF/tyreMFnum).
+% (same rule as aeroEvalSX/aeroEvalNum).
 
 assert(isfield(vp,'aeroARW') && isstruct(vp.aeroARW) && isfield(vp.aeroARW,'basis'), ...
     ['vehModel:ActiveRW - vp.aeroARW is missing. The ActiveRW configuration needs ' ...
@@ -424,7 +407,7 @@ assert(strcmp(vp.aeroARW.basis.kind, 'hermite3tanh'), ...
 % arithmetic only (tanh + polynomials): no interpolant nodes, no if/else, no MX.
 % Cardinal-basis blend weights. SAME FORMULA as Functions/rwBasisWeights.m, which
 % is the numeric owner - keep the two in step exactly as aeroEvalSX/aeroEvalNum and
-% tyreMF/tyreMFnum are kept. Written out here rather than called because this block
+% the twin formulas are kept. Written out here rather than called because this block
 % is raw SX arithmetic and must stay free of cell-array plumbing.
 % Switches sit on the INTERIOR knots only: n-2 switches, n-1 segments. The previous
 % version hardcoded three switches and read kn_rw(4), which on a four-node map is
@@ -639,7 +622,7 @@ sx_rr = (vp.Rw*Om_rr - v_rrx)/v_rrx;
 %%- tyre forces [N]: per-axle Zenvo Pacejka MF5.2 with combined slip
 % (see Parameters/tyreParams_DoNotPublish.m and tyreMF() at the end of this
 % file). The load-sensitivity nominal can be shifted per axle - Fz0_shift_f/r
-% are 1 in normal runs and become design parameters in MLTP_TyreOptim.m.
+% are 1 in normal runs and become design parameters in the tyre-optimisation study.
 Fz0eff_f = vp.tyre_f.Fz0 * vp.Fz0_shift_f;
 Fz0eff_r = vp.tyre_r.Fz0 * vp.Fz0_shift_r;
 
@@ -667,7 +650,7 @@ elseif pt.ATD == 1
         % split of the AWD model (same per-wheel terms as the branch above, so
         % total brake torque is identical: 2*T_brake either way). This is the
         % audit variant that separates drive-torque vectoring from brake-bias
-        % scheduling - see docs/atd-audit.md and Scripts/userOpts.m's ATDBrake.
+        % scheduling - see Scripts/userOpts.m's ATDBrake.
         T_fl = ATD_FL*T_motor*vp.gear + T_brake*vp.brkB;
         T_fr = ATD_FR*T_motor*vp.gear + T_brake*vp.brkB;
         T_rl = ATD_RL*T_motor*vp.gear + T_brake*(1-vp.brkB);
@@ -739,7 +722,7 @@ function [fx, fy, mux, muy] = tyreMF(ty, Fz0eff, fz, sx, sa)
 % Camber terms (pDx3/pDy3) are dormant: the 7DoF model has no camber DOF.
 % ty = vp.tyre_f or vp.tyre_r; Fz0eff = (possibly shifted) nominal load.
 % SX-safe: sin/cos/atan compositions only, smooth everywhere incl. zero slip.
-% NUMERIC TWIN: Functions/tyreMFnum.m - KEEP THE FORMULAS IDENTICAL.
+% NUMERIC TWIN: keep any numeric implementation's formulas identical to this one.
 dfz = (fz - Fz0eff)/Fz0eff;
 mux = ty.pDx1 + ty.pDx2*dfz;
 muy = ty.pDy1 + ty.pDy2*dfz;

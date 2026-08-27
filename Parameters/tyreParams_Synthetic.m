@@ -12,7 +12,7 @@
 % with your own measured set before drawing engineering conclusions.
 %
 % Structure matches what tyreMF() in Scripts/vehModel.m consumes (numeric
-% twin: Functions/tyreMFnum.m). Per axle:
+% numeric twin). Per axle:
 %   Fz0                     nominal load FNOMIN                       (N)
 %   pDx1 pDx2 pDx3          long. peak friction: mu = pDx1 + pDx2*dfz
 %   pDy1 pDy2 pDy3          lat.  peak friction: mu = pDy1 + pDy2*dfz

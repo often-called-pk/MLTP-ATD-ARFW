@@ -12,7 +12,7 @@ function [dClfA, dClrA, dCdA] = fwOnlyDelta(alpha)
 %   Products convention: caller divides by fixed vp.A ONCE (lift at map build,
 %   drag at eval - spec S2). Positive lift delta = unload (less downforce).
 %   Source: reference/aero/additional info regarding front Aero/
-%   FrontAero_Digitised_DoNotPublish.xlsx (digit-exact 2026-08-09).
+%   the supplier's digitised front-aero workbook (not distributed).
 
 angles = [-25 -20 0];
 

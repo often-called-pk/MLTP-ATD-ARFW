@@ -4,7 +4,7 @@ function [dClfA, dClrA, dCdA] = fwAeroDelta(alpha)
 %   FW flap angle alpha [deg]. Deployed nodes carry RW -17.5 deg implicitly
 %   (CFD runs R130/R131) - these are NOT FW-only deltas.
 %   Source: reference/aero/additional info regarding front Aero/
-%   FrontAero_Digitised_DoNotPublish.xlsx (verified digit-exact 2026-08-07).
+%   the supplier's digitised front-aero workbook (not distributed).
 %   Nodes: -25 (R131), -20 (R130), 0 (R128).
 
 angles = [-25 -20 0];

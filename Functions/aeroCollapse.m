@@ -20,7 +20,7 @@ function coef = aeroCollapse(map, RHf0, RHr0, kaxf, kaxr, dClF, dClR, rho, A, vm
 %   width (2.5 m/s) - wider blends smear the clamp knee and fail the gate.
 %
 %   Inputs
-%     map        struct from importAeroMap (RHf [mm], RHr [mm], CLf, CLr)
+%     map        ride-height map struct (RHf [mm], RHr [mm], CLf, CLr)
 %     RHf0,RHr0  nominal ride heights [mm] AT v = 10 m/s (sheet cell A4
 %                wording: "nominal vehicle ride heights (e.g. at v = 10 m/s)")
 %     kaxf,kaxr  axle rates [N/m] (2x wheel rate)

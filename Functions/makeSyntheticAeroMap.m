@@ -9,7 +9,7 @@ function map = makeSyntheticAeroMap(outFile)
 %  describe any real vehicle.
 % =========================================================================
 %
-% It replaces the confidential ride-height workbook that Functions/importAeroMap.m
+% It stands in for the licensed ride-height workbook that the original importer
 % reads, so this repository can run without it. The shape is a generic smooth
 % ground-effect model: downforce grows as either ride height falls, with a
 % cross-term so rake shifts aero balance the way a real car's does.
@@ -22,7 +22,7 @@ function map = makeSyntheticAeroMap(outFile)
 % this map and then fits it piecewise-polynomially against a residual gate, so
 % the map has to be smooth and monotone or the collapse will not converge.
 %
-% Output matches importAeroMap.m's schema exactly:
+% Output matches the expected aeroMap_Tur.mat schema exactly:
 %     RHf    [10x1]  front ride-height grid [mm]  (41..140)
 %     RHr    [1x11]  rear  ride-height grid [mm]  (40..150)
 %     CLf    [10x11] front-axle lift coeff (negative = downforce)
@@ -38,7 +38,7 @@ if nargin < 1 || isempty(outFile)
     outFile  = fullfile(repoRoot, 'Parameters', 'aeroMap_Synthetic.mat');
 end
 
-% Grids - must match importAeroMap.m's expected spans exactly.
+% Grids - must match the expected spans exactly.
 RHf = (41:11:140)';        % 10x1
 RHr =  40:11:150;          % 1x11
 assert(isequal(size(RHf), [10 1]) && isequal(size(RHr), [1 11]), ...
@@ -64,7 +64,7 @@ BALref = 100 * CLf ./ (CLf + CLr);
 map = struct('RHf', RHf, 'RHr', RHr, 'CLf', CLf, 'CLr', CLr, ...
              'BALref', BALref, 'synthetic', true);
 
-% Same hard checks importAeroMap.m applies, so a bad edit fails here.
+% The same hard checks the real importer applies, so a bad edit fails here.
 assert(all(isfinite(CLf(:))) && all(isfinite(CLr(:))), 'makeSyntheticAeroMap: non-finite lift');
 assert(all(diff(RHf) > 0) && all(diff(RHr) > 0), 'makeSyntheticAeroMap: grids must be increasing');
 assert(all(CLf(:) < 0) && all(CLr(:) < 0), 'makeSyntheticAeroMap: expected downforce everywhere');

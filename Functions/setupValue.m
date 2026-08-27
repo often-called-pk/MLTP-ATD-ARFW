@@ -24,7 +24,7 @@ function v = setupValue(name, defaultValue)
 %   function's OWN location, never from pwd and never by bare filename. A bare
 %   name resolves through the whole MATLAB search path, so a stray override in
 %   another checkout silently hijacks runs started here - the exact failure mode
-%   documented for runOverride.mat in CLAUDE.md, and one that cost several hours
+%   documented for runOverride.mat too, and one that cost several hours
 %   of wrong-configuration solves in this repo already.
 
 persistent OVR
@@ -37,16 +37,15 @@ end
 % An existence+mtime check per call is free (one dir() against ~38 calls per
 % vehParams run) and it closes a silent-wrong-configuration hole that an
 % "isempty(OVR)" cache cannot:
-%   1. run MLTP            -> cache records "no override"
-%   2. run loadSetupSheet  -> writes setupOverride.mat, prints "2 applied",
-%                             manifest records them APPLIED
-%   3. run MLTP again      -> stale cache still says "no override": the run uses
-%                             code defaults while the manifest certifies the
-%                             sheet's values. Measured on 2026-07-30.
+%   1. run MLTP        -> cache records "no override"
+%   2. write the sheet -> setupOverride.mat appears, manifest records the values
+%                         as APPLIED
+%   3. run MLTP again  -> a stale cache would still say "no override", so the run
+%                         uses code defaults while the manifest certifies the
+%                         sheet's values.
 % That is precisely the failure the manifest exists to prevent, so the manifest
 % asserting the opposite is worse than silence. The reverse case matters too:
-% deleting setupOverride.mat mid-session must return to code defaults, as
-% docs/setup-sheet.md promises.
+% deleting setupOverride.mat mid-session must return to code defaults.
 f = fullfile(fileparts(fileparts(mfilename('fullpath'))), 'setupOverride.mat');  % Functions/ -> repo root
 d = dir(f);
 if isempty(d), stamp = -1; else, stamp = d.datenum; end
@@ -82,7 +81,7 @@ if ~OVR.loaded || ~isfield(OVR.vals, name)
 end
 o = OVR.vals.(name);
 
-% Type/shape guard. Functions/loadSetupSheet.m already validates everything it
+% Type/shape guard. The sheet loader already validates everything it
 % writes, so this only fires on a hand-made or truncated setupOverride.mat - and
 % it warns and keeps the code default rather than erroring, for the same reason
 % the loader does (locked decision 11): a bad sheet must not stop a solve. It

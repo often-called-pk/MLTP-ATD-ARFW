@@ -18,3 +18,9 @@ runOverride.mat
 
 # Solver output
 solutions/
+
+# Local stand-ins produced by the README recipe. On a real-data install these
+# exact paths hold licensed supplier data, so they must never be committed from
+# either kind of checkout.
+Parameters/tyreParams_DoNotPublish.m
+Parameters/aeroMap_Tur.mat

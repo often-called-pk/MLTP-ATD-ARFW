@@ -332,15 +332,8 @@ data.init.vehicle.fx_r = Ftyres(2,1,:);
 data.init.vehicle.fy_r = Ftyres(2,2,:);
 data.init.vehicle.fz_r = Ftyres(2,3,:);
 %-slip angles
-% f_slipAng = Function('f_slipAng',{x,u,pv},{[sa_f; sa_r]},{'x','u','pv'},{'slipAng'});
-% slipAng = reshape(full(f_slipAng(data.x_opt./x_s, data.u_opt./u_s, pv_knot)),2,1,N+1);
-% data.vehicle.sa_f = slipAng(1,1,:);
-% data.vehicle.sa_r = slipAng(2,1,:);
-% %-slip ratios
-% f_slipX = Function('f_slipX',{x,u,pv},{[sx_f; sx_r]},{'x','u','pv'},{'slipX'});
-% slipX = reshape(full(f_slipX(data.x_opt./x_s, data.u_opt./u_s, pv_knot)),2,1,N+1);
-% data.vehicle.sx_f = slipX(1,1,:);
-% data.vehicle.sx_r = slipX(2,1,:);
+% (slip angles and ratios are not reconstructed here - the warm start does not
+%  need them; MLTP.m computes them for the run that matters.)
 
 % Constraints
 hval = full(h_eq(data.init.x_opt./x_s, data.init.u_opt./u_s, data.init.y_opt./y_s, pv_knot));
@@ -364,68 +357,10 @@ save(initFile, 'data');
 fprintf('MLTP_initial: warm start cached -> %s\n', initFile);
 clear initDir initFile
 
-%% Postprocessing - Log data with Simulation Data Inspector
-% 
-% % Initialise figures and SDI
-% Simulink.sdi.clear; %clears all data in SDI **USE CAREFULLY**
-%-define container for external figures
-% global figures;
-% figures = struct();
-% %-sync data cursors between SDI and external figures
-% figures.callbackID = Simulink.sdi.registerCursorCallback(@(t1,t2)onCursorMove(t1,t2));
-% %-initialise external figures
-% %%-track
-% figures.track.fig = figure('Name','Circuit Map'); clf
-% figures.track.ax = axes;
-% updateTrackPlot(nan,nan);
-% 
-% % Create time series objects for sdi
-% %-states, inputs and aux. variables
-% for i = 1:length(x)
-%     aux = x(i); name = erase(aux.name,'_n'); %get name of variable
-%     data.sdi.solData.states.(name) = timeseries(data.x_full(i,:), s_full,'name',name); %create timeseries object
-% end
-% for i = 1:length(u)
-%     aux = u(i); name = erase(aux.name,'_n');
-%     data.sdi.solData.inputs.(name) = timeseries(data.u_full(i,:), s_full,'name',name);
-% end
-% data.sdi.solData.time = timeseries(data.t_opt, s_knot, 'name', 'time');
-% clear aux name
-% %-track data
-% data.sdi.track.s = timeseries(s_full,s_full, 'name', 's');
-% data.sdi.track.k = timeseries(k_full,s_full, 'name', 'k');
-% data.sdi.track.x = timeseries(data.track.x,s_full, 'name', 'x');
-% data.sdi.track.y = timeseries(data.track.y,s_full, 'name', 'y');
-% %-vehicle data
-% %%-parameters (just as a way to store the values that were used for each simulation)
-% fn = fieldnames(vp); %get names of vehicle parameters
-% for i = 1:length(fn)
-%     if isa(vp.(fn{i}),'double')
-%         data.sdi.vehicle.params.(fn{i}) =  timeseries(repmat(vp.(fn{i}),1,length(s_knot)),s_knot);
-%     end
-% end
-% clear fn
-% %%-aerodynamic forces
-% data.sdi.vehicle.f_drag = timeseries(data.vehicle.f_drag, s_knot, 'name', 'f_drag');
-% data.sdi.vehicle.f_lift = timeseries(data.vehicle.f_lift, s_knot, 'name', 'f_lift');
-% %%-tyre forces
-% data.sdi.vehicle.fx_f = timeseries(data.vehicle.fx_f, s_knot, 'name', 'fx_f');
-% data.sdi.vehicle.fy_f = timeseries(data.vehicle.fy_f, s_knot, 'name', 'fy_f');
-% data.sdi.vehicle.fz_f = timeseries(data.vehicle.fz_f, s_knot, 'name', 'fz_f');
-% data.sdi.vehicle.fx_r = timeseries(data.vehicle.fx_r, s_knot, 'name', 'fx_r');
-% data.sdi.vehicle.fy_r = timeseries(data.vehicle.fy_r, s_knot, 'name', 'fy_r');
-% data.sdi.vehicle.fz_r = timeseries(data.vehicle.fz_r, s_knot, 'name', 'fz_r');
-% %%-slip angles
-% data.sdi.vehicle.sa_f = timeseries(data.vehicle.sa_f, s_knot, 'name', 'sa_f');
-% data.sdi.vehicle.sa_r = timeseries(data.vehicle.sa_r, s_knot, 'name', 'sa_r');
-% %%-slip ratios
-% data.sdi.vehicle.sx_f = timeseries(data.vehicle.sx_f, s_knot, 'name', 'sx_f');
-% data.sdi.vehicle.sx_r = timeseries(data.vehicle.sx_r, s_knot, 'name', 'sx_r');
-% %-path constraints
-% for i = 1:length(hnames)
-%     data.sdi.constraints.(hnames{i}) = timeseries(data.constraints.(hnames{i}), s_knot, 'name', hnames{i});
-% end
-
+%% Postprocessing - Simulation Data Inspector logging
+% Disabled here: MLTP_initial only produces the warm start, and MLTP.m does the
+% SDI logging for the run that matters. (A commented-out copy of the logging
+% block was removed; see Scripts/plotSDI.m and MLTP.m's postprocessing.)
 %%
 elapsedTime(end+1) = toc - elapsedTime(end);
 disp(' ')

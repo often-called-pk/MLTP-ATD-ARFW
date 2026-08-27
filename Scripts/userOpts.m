@@ -24,7 +24,7 @@
 % - 'Active':   active front and rear wing control
 % - 'AALB':     active asymmetrical front and rear wing control (split front wing & tilt rear wing)
 
-% --- run-config override (see runComparisonBatch.m). No-op when absent. ---
+% --- run-config override, written by a batch driver. No-op when absent. ---
 % PINNED TO THIS CHECKOUT'S ROOT, deliberately. A bare
 % exist('runOverride.mat','file')/load('runOverride.mat') resolves through the WHOLE
 % MATLAB search path, so a stray runOverride.mat left in another checkout (e.g. the
@@ -67,7 +67,7 @@ end
 % Why it exists: ATD is 4.5 s/lap faster than AWD on BCN, and free brake-bias
 % scheduling is a capability a real torque-vectoring driveline does NOT have
 % (it needs independent brake-by-wire calipers). This flag isolates that effect
-% from genuine drive-torque vectoring. See docs/atd-audit.md.
+% from genuine drive-torque vectoring.
 ATDBrake = getfielddef(ovr,'ATDBrake','Free');
 switch ATDBrake
     case 'Free',  vp.atdBrakeFixed = 0;
@@ -77,7 +77,7 @@ switch ATDBrake
 end
 
 %% Rear-wing schedule / discrete study (ActiveRW only)  -- added 2026-07-28
-% docs/plans/2026-07-28-discrete-rw-mandate.md. BOTH FLAGS ARE OFF BY DEFAULT and
+% the discrete/mandated wing study. BOTH FLAGS ARE OFF BY DEFAULT and
 % every consumer (Scripts\MLTP.m, Parameters\vehParams.m) is guarded on them, so a
 % default run is byte-for-byte the continuous ActiveRW problem that solved BCN in
 % 107.228 s - no extra decision variables, no extra constraint rows, no extra
@@ -158,9 +158,9 @@ end
 % Snap-penalty settings, RETAINED THOUGH THE PENALTY ITSELF IS GONE (retired
 % 2026-08-04; RWDiscrete = 'Snap' now errors above, and MLTP.m no longer builds the
 % objective term). Three things still read these fields and would break if they
-% vanished: Validation\validateRWVelocity.m asserts on rwSnapOpts.settings (it is the
+% vanished: the velocity-schedule gate asserts on rwSnapOpts.settings (it is the
 % list of named wing settings this variant recognises, +20 deg deliberately absent),
-% runComparisonBatch.m's config check compares vp.rwSnapRho, and archived runs carry
+% a batch driver's config check compares vp.rwSnapRho, and archived runs carry
 % both. rwSnapRho is therefore a recorded 0, no longer a homotopy knob.
 % The wells/width live in a STRUCT on purpose: the SDI bookkeeping loop in MLTP.m
 % turns every scalar double field of vp into a timeseries on the knot grid, which a
@@ -184,51 +184,42 @@ vp.rwVelBeta = getfielddef(ovr,'rwVelBeta', 4);                                 
 % that consumed them.
 vp.rwVelBrakeOpts = struct('zeroTrim', true);
 
-% Velocity schedule (Functions\rwVelocityTarget.m), mode 3 only. A THREE-LEVEL
-% staircase in speed - all three static downforce settings, not just the extremes:
-%   +10 deg (corner) -> 0 deg (mid) -> -10 deg (straight), plus +15 deg on the brake
-%   trigger. The switch speeds are MEASURED, not guessed - on the solved free-ARW
-%   BCN/AWD lap, restricted to OFF-BRAKE knots (where this schedule is what governs),
-%   the optimum's own median speed is 27.3 m/s where it sits above +5 deg, 47.9 m/s
-%   where it sits within +-2.5 deg of zero, and 78.3 m/s where it sits below -5 deg.
-%   v1/v2 are placed midway between adjacent medians.
-% w1/w2 = 3.5 m/s is squeezed from both sides and both bounds are checked, not assumed:
-%   LOWER by the actuator - each switch moves 10 deg, so the demand is
-%   10*|ax|/(2w) = 36.0 deg/s at the solved |ax|max = 25.19, against c.ub.RW = 25;
-%   the hard floor is w >= 5.04. Note 36.0 is still BELOW the free continuous
-%   optimum's own peak actuator usage on the same lap (38.3 deg/s), so the schedule
-%   never asks more of the wing than the car already does. MLTP.m asserts it.
-%   UPPER by the mid plateau - tv only REACHES 0 deg if v2-v1 >~ 4w. Here
-%   v2-v1 = 25.5 m/s against 4w = 14 m/s, so the plateau is well formed (residual
-%   6e-4 deg at its centre) and holds the MID setting over 10.7 % of the solved lap.
-%   Raising w erodes that; MLTP.m asserts the plateau survives.
-% rwVelBand is the two-sided tolerance |alpha - target| <= band. It is NOT a slack to
-% be widened for convergence: widening it hands the wing back the freedom this variant
-% exists to take away, so any change must be quoted with the result.
-% rwVelKappa opens the band across a transition by kappa x the schedule's own local
-% variation, which is what makes a two-sided constraint on a STEPPING target feasible
-% at all: at a step the wing is slewing, and a slewing wing is by definition not at
-% its target. kappa >= 1 admits the whole slew arc; it is set slightly above 1 because
-% MLTP.m's soft extrema are the weighted-average form, which undershoots a true max.
-% Where the schedule is flat (straights, corner plateaus) the term vanishes and only
-% rwVelBand binds.
-% rwVelBandM is the HALF-WIDTH of the window the band's opening term is measured over,
-% in intervals. Measured the hard way: the first ARWv solve reused the retired braking
-% mandate's look-ahead window of 8 here and the law did not bind - median band
-% 12.72 deg against a 30 deg control range, |err| up to 20.87 deg, and the wing ran to
-% +20 deg. The two windows answered different questions. That one sized a one-sided
-% look-ahead's PRE-POSITIONING horizon, which wants to be long. This one asks "how
-% long is the wing legitimately mid-slew", which is short. This bandM=2 tuning was
-% done at the PRE-DIRECTIVE c.ub.RW = 60 deg/s: the worst step (25 deg) took 0.417 s,
-% ~2.5 intervals of 10 m at 60 m/s, so +-2 (40 m) covered it with margin (+-1/20 m did
-% not). Measured then: +-2 gave a median band of 1.36 deg, 47 % of knots inside 1 deg,
-% vs +-8's 12.72 deg / 13.5 %.
+% Velocity schedule (Functions/rwVelocityTarget.m), mode 3 only.
 %
-% Does NOT hold at the Zenvo-directed 25 deg/s: the same 25 deg step now needs ~6
-% intervals (60 m), and the actual required half-width is 5 (BCN) / 6 (NUR) - over the
-% BAND_M_MAX = 4 ceiling validateRWVelocity.m enforces. That overshoot is WHY ARWv is
-% retired at 25 deg/s (docs/rw-slew-rate-change.md SS2.2); bandM=2 stays only as a
-% record of the pre-directive tuning, not a value ARWv can still solve with.
+% RETIRED AT THE CURRENT 25 deg/s SLEW LIMIT - the values below are kept as a
+% record of the tuning, not as a configuration that still solves. Both
+% feasibility conditions fail: the schedule's own commanded slew is 36.0 deg/s
+% against the 25 deg/s bound, and the band window it needs is 5 intervals (BCN)
+% / 6 (NUR) against the BAND_M_MAX = 4 ceiling the gate enforces. The gate now
+% asserts that infeasibility; a future rate or schedule change that makes it
+% pass again is the signal to revisit the retirement.
+%
+% The schedule is a three-level staircase in speed - all three static downforce
+% settings, not just the extremes: +10 deg (corner) -> 0 (mid) -> -10 (straight),
+% plus +15 on the brake trigger. Switch speeds were measured rather than guessed,
+% from the off-brake knots of a solved free-wing lap (where this schedule is what
+% governs), with v1/v2 placed midway between adjacent median speeds.
+%
+% w1/w2 is squeezed from both sides. LOWER by the actuator: each switch moves
+% 10 deg, so the demand is 10*|ax|/(2w), and w has a hard floor of
+% 10*|ax|max/(2*c.ub.RW). UPPER by the mid plateau: tv only REACHES 0 deg if
+% v2-v1 >~ 4w, and raising w erodes it. MLTP.m asserts both rather than assuming.
+%
+% rwVelBand is the two-sided tolerance |alpha - target| <= band. It is NOT a
+% slack to widen for convergence: widening hands the wing back the freedom this
+% variant exists to remove, so any change must be quoted with its result.
+% rwVelKappa opens the band across a transition by kappa x the schedule's own
+% local variation, which is what makes a two-sided constraint on a STEPPING
+% target feasible at all - at a step the wing is slewing, and a slewing wing is
+% by definition not at its target. kappa >= 1 admits the whole slew arc, set
+% slightly above 1 because MLTP.m's soft extrema use a weighted-average form that
+% undershoots a true max. Where the schedule is flat the term vanishes and only
+% rwVelBand binds.
+% rwVelBandM is the HALF-WIDTH, in intervals, of the window the opening term is
+% measured over. It asks "how long is the wing legitimately mid-slew", which is
+% short - an early attempt reused a one-sided look-ahead's pre-positioning
+% horizon of 8 intervals, which is a different question and wants to be long, and
+% the law then failed to bind at all.
 vp.rwVelBand  = getfielddef(ovr,'rwVelBand',  0.50);                                            % two-sided band (deg)
 vp.rwVelKappa = getfielddef(ovr,'rwVelKappa', 1.25);                                            % transition band opening (-)
 vp.rwVelBandM = getfielddef(ovr,'rwVelBandM',    2);                                            % band window half-width (intervals)
@@ -274,18 +265,13 @@ switch circuit
 %-B) Real circuits data 
     case 'BCN'
         track = load('Circuits/Barcelona_circuit.mat');
-    case 'BCN_S1'
-        track = load('Circuits/Barcelona_circuit_s1.mat');
-    case 'BCN_S2'
-        track = load('Circuits/Barcelona_circuit_s2.mat');
-    case 'BCN_S3'
-        track = load('Circuits/Barcelona_circuit_s3.mat');
-    case 'Jarama'
-        track = load('Circuits/Jarama_circuit.mat');
-    case 'Spa'
-        track = load('Circuits/Spa_circuit.mat');
     case 'NUR'
         track = load('Circuits/Nurburgring_circuit.mat');
+    otherwise
+        error('userOpts:unknownCircuit', ...
+            ['Unknown circuit ''%s''. This distribution ships Barcelona (BCN) and ' ...
+             'Nurburgring (NUR) only, plus the four virtual tracks above. Add the ' ...
+             'track .mat to Circuits/ and a case here to use another.'], circuit);
 end
 
 %% User options
@@ -307,7 +293,7 @@ vi = getfielddef(ovr,'vi',79.65);                                               
 %   fixed point is vx(1) = vx(end) = 80.65 at vi = 79.65.
 % fixD (mu=1.30 generic tyre, same relaxed cap) closed its fixed point at 78.33.
 %
-% 2026-07-27 ActiveRW (BCN/ARW/AWD, docs/plans/2026-07-27-active-rw-control.md
+% ActiveRW (BCN/ARW/AWD
 % D1 solve): vi = 79.65 above is reused unchanged as the ARW starting guess -
 % it is the static Mid fixed point, copied over for lack of an ARW-specific
 % one, NOT re-derived for ARW. UNTESTED: the continuous [-10,+20] deg wing
@@ -373,7 +359,7 @@ opts.ipopt.compl_inf_tol = 1e-4;                                                
 [c.ru.TW,      c.rdu.TW,      c.rdu2.TW]       = deal(0.005,  0,  0.4);                         % TW angle input        (-)
 
 % runOverride hook for the RW second-derivative weight, needed by stages C1/C2 of
-% Validation\runARWMandate.m (locked decision 4: sweep rdu2.RW over {0.9, 0.1, 0} to
+% a mandate-study driver (sweep rdu2.RW over {0.9, 0.1, 0} to
 % test whether the shipped continuous ActiveRW result is regularisation-limited -
 % the mandated wing shape costs +0.029 s-equivalent of objective at 0.9, ~25 % of the
 % airbrake's whole lap-time prize). Applied AFTER the block above so the override
@@ -386,6 +372,58 @@ if isfield(ovr,'rdu2RW')
         'userOpts', 'ovr.rdu2RW');
     c.rdu2.RW = ovr.rdu2RW;
     fprintf('userOpts: c.rdu2.RW overridden to %g (runOverride.mat)\n', c.rdu2.RW);
+end
+
+% ---- CONTROL-EXPERIMENT SEAMS (2026-08-18, P1 sensitivity set) -------------------
+% Three more hooks in the same spirit as rdu2RW above, added so the P1 control runs
+% (mesh refinement, actuator-rate sensitivity) are driven from runOverride.mat rather
+% than by hand-editing this file and having to remember to put it back. Each is inert
+% when its field is absent and announces itself when it fires; none has a default
+% here, so the shipped configuration is byte-identical to before when no override
+% file is present. Do not extend this list casually - every hook is another way for a
+% stray override to change a run without anyone noticing (see the anchoring note in
+% on runOverride.mat resolution, in Functions/setupValue.m).
+if isfield(ovr,'OPT_ds')
+    validateattributes(ovr.OPT_ds, {'numeric'}, {'scalar','real','finite','positive'}, ...
+        'userOpts', 'ovr.OPT_ds');
+    OPT_ds = ovr.OPT_ds;
+    fprintf('userOpts: OPT_ds overridden to %g m (runOverride.mat)\n', OPT_ds);
+end
+if isfield(ovr,'ipoptTol')
+    validateattributes(ovr.ipoptTol, {'numeric'}, {'scalar','real','finite','positive'}, ...
+        'userOpts', 'ovr.ipoptTol');
+    opts.ipopt.tol            = ovr.ipoptTol;
+    opts.ipopt.acceptable_tol = 10*ovr.ipoptTol;
+    fprintf('userOpts: IPOPT tol overridden to %g (runOverride.mat)\n', opts.ipopt.tol);
+end
+if isfield(ovr,'rateRW')
+    validateattributes(ovr.rateRW, {'numeric'}, {'scalar','real','finite','positive'}, ...
+        'userOpts', 'ovr.rateRW');
+    [c.ub.RW, c.lb.RW] = deal(ovr.rateRW, -ovr.rateRW);
+    fprintf('userOpts: wing slew limit overridden to +/-%g deg/s (runOverride.mat)\n', c.ub.RW);
+end
+% OPT_aBrakeRW - the STATION the ARWd braking floor drives the rear wing UP to.
+% Shipped value is +15 deg, the airbrake station; MLTP.m's mode-4 block reads this
+% field through getfielddef with the same +15 default, so an absent override leaves
+% the constraint byte-identical. Added 2026-08-19 for the P1 floor10 control run,
+% which separates "cost of mandating the AIRBRAKE station specifically" (+15 sheds
+% rear downforce and adds drag) from "cost of any braking-floor mandate at all" by
+% re-solving ARWd with the floor at +10, the station the FREE wing already visits.
+%
+% DELIBERATELY SCOPED TO MODE 4 (ARWd) ONLY. Modes 5/6 (AFWd, ARFWd) keep their own
+% hardcoded stations: their axes are different surfaces with different node sets, and
+% a single knob silently retargeting three configs' floors is exactly the stray-
+% override hazard the seam block's header warns about.
+%
+% The floor's trailing window is NOT hardcoded and needs no companion override: MLTP.m
+% sizes it as slewM = (ab_aBrake - ab_alphaMin)/c.ub.RW*max(vi,1), so a +10 station
+% shrinks the 25 deg swing to 20 deg and the window contracts with it automatically.
+if isfield(ovr,'OPT_aBrakeRW')
+    validateattributes(ovr.OPT_aBrakeRW, {'numeric'}, ...
+        {'scalar','real','finite','>',-10,'<=',15}, 'userOpts', 'ovr.OPT_aBrakeRW');
+    vp.rwDiscABrake = ovr.OPT_aBrakeRW;
+    fprintf('userOpts: ARWd braking-floor station overridden to %+g deg (runOverride.mat)\n', ...
+        vp.rwDiscABrake);
 end
 
 %Regularisation factors for the states and aux variables                               
