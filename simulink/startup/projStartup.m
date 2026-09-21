@@ -64,6 +64,12 @@ function projStartup()
 %   their model workspaces, which is the price of having the green Run button
 %   drive the selected track.
 
+% Everything in base BEFORE this file runs. Anything that appears while it runs
+% and is not one of the structs it owns is scratch dropped by a model callback,
+% and is swept at the end -- see localSweepBase below.
+baseBefore = evalin('base', 'who');
+OWNED      = {'vp', 'pt', 'sus', 'act', 'inrt', 'hudGear', 'projStartupError'};
+
 try
     [vp, pt] = loadVehicleParams();
     sus      = suspensionBorrowed();
@@ -78,8 +84,24 @@ try
 
     evalin('base', 'clear projStartupError');
 
+    % hudGear -- the DISPLAY-ONLY indicated-gear table. ARFWr_Sim's InitFcn
+    % builds it too, but an InitFcn only fires when a simulation starts, so
+    % until the first lap the live Dashboard panel and anything else reading
+    % hudGear find nothing. It is derived from pt alone and costs nothing, so
+    % it is built here as well and the two agree by construction (both call
+    % indicatedGearParams, its single owner). Its own try: a viz folder that is
+    % not yet on the project path must not cost us vp/pt/sus/act/inrt.
+    try
+        assignin('base', 'hudGear', indicatedGearParams(pt));
+    catch MEhud
+        warning('ARFWr_RT:startup:hudGearFailed', ...
+            ['projStartup could not build hudGear (%s: %s). It is display-only, so the ' ...
+             'simulation is unaffected; ARFWr_Sim''s InitFcn builds it at the first ' ...
+             'simulation start.'], MEhud.identifier, MEhud.message);
+    end
+
     fprintf(['projStartup: base workspace loaded -- vp (%s, rwMandate=%d), ' ...
-             'pt, sus, act, inrt.\n'], vp.aeroSetting, vp.rwMandate);
+             'pt, sus, act, inrt, hudGear.\n'], vp.aeroSetting, vp.rwMandate);
 
     % ---- the active track -------------------------------------------
     % simulink/data/activeTrack.mat is the single record of which solved lap
@@ -108,4 +130,34 @@ catch ME
          'on the path.'], ME.identifier, ME.message);
 end
 
+localSweepBase(baseBefore, OWNED);
+
+end
+
+% =========================================================================
+function localSweepBase(before, owned)
+%LOCALSWEEPBASE Drop the scratch a model callback left in the base workspace.
+%
+%   A Simulink model callback is evaluated IN THE BASE WORKSPACE, so its
+%   locals stay there. ARFWr_Sim's PreLoadFcn is the one that matters here: it
+%   pushes the rolling-start speed into Plant's model workspace and leaves
+%   mwD, vProf, v0, mwP and dirty0 behind, which happens during project open
+%   because applyTrackPack loads ARFWr_Sim to set its stop time. Opening the
+%   project then appeared to "leak" five variables nobody had heard of.
+%
+%   The sweep is written against the DIFFERENCE between before and after, not
+%   against a list of names, so a callback that changes its scratch cannot
+%   quietly start leaking again. It is scoped to project open: a bare
+%   load_system('ARFWr_Sim') later in an open session drops the same names
+%   once more, until the model is unloaded and reloaded.
+%
+%   A sweep that fails is not worth failing project open over.
+try
+    added = setdiff(evalin('base', 'who'), [before(:); owned(:)]);
+    if ~isempty(added)
+        evalin('base', ['clear ' strjoin(added(:)', ' ')]);
+    end
+catch
+    % best effort, deliberately silent
+end
 end
