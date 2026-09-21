@@ -400,6 +400,14 @@ Reseeding with `vend - 1`, not `vend`, is load-bearing: the solver always takes 
 admissible entry in its window, so seeding exactly at `vend` overshoots by the window width
 and the iteration stalls at a ~1 m/s miss forever.
 
+The seed also carries **down the ladder**. Every rung is the same car on the same track, so
+their closed entry speeds agree to a few tenths: a stage starts at `vend - 1` of the nearest
+already-solved stage — just solved, or read back out of its lap `.mat` when it was skipped —
+and falls back to 75 m/s only when there is no such stage. Without it every rung repeated the
+same discovery: start at 75, miss closure by several m/s, re-solve, which cost one whole extra
+solve per rung. Passing `'Vi'` explicitly turns the carry-forward off and applies that seed to
+every stage.
+
 ### The warm-start ladder
 
 Each active-aero configuration is warm-started from the one below it — a cold start on a
@@ -452,10 +460,40 @@ Wall time per entry-speed iteration, one machine, both drivetrains at `ATD`:
 
 A full `'Ladder', 'auto'` run from cold multiplies each figure by however many `vi`
 iterations that stage needs to close (up to `'ViMaxIter'`, default 4) and by four stages.
-`Spa` (a genuinely new track, full ladder, `ARW` only) measured 607 s total wall time over
-563 IPOPT iterations, closing on the first `vi` iteration, lap 127.823 s.
-<!-- TODO(spa-ladder): fill in ARWd/ARFWd/ARFWr wall times and lap numbers for Spa once
-     the rest of the ladder has been solved. -->
+
+### Measured: a genuinely new track
+
+`Spa` was solved from cold — no shipped lap, no init cache, no re-tuning of tolerances,
+regularisation or rate limits, and no remedy from the list above. The full default ladder:
+
+| Stage | Status | Lap | Closed |
+|---|---|---|---|
+| `ARW`   | `Solve_Succeeded` | 127.823 s | yes |
+| `ARWd`  | `Solve_Succeeded` | 127.977 s | yes |
+| `ARFWd` | `Solve_Succeeded` | 127.850 s | yes |
+| `ARFWr` | `Solve_Succeeded` | 127.814 s | yes |
+
+All four converged and closed. The `ARW` stage took 607 s of wall time over 563 IPOPT
+iterations and closed on its first entry-speed iteration; the other three each needed two
+entry-speed passes, because that ladder run predates the seed carry-forward described under
+[Entry-speed closure](#entry-speed-closure) — every rung restarted at the 75 m/s cold seed,
+missed closure and re-solved. With the carry-forward in place those second passes largely
+disappear, so treat the two-pass figure as an upper bound on what the same run costs today.
+
+The differences between the four wing configurations on Spa are all below 0.05 s, which is
+**not resolved by the present numerical method** — they are reported as converged lap times
+for four configurations on a new track, not as a ranking, and none of them is "faster" than
+another.
+
+The same Spa lap also drives the closed-loop Simulink sim with no controller retuning: the
+car completes the lap in 177.888 s with `max |n| = 2.059 m` and zero off-track samples over
+the 6915 m after the opening corner. It does run wide in the first 26 m — `max |n| = 4.745 m`
+— because Spa's `s = 0` sits on a corner exit (reference radius down to 29 m by `s = 9` m)
+while Barcelona's and the Nürburgring's both start on a straight, so the driver begins the lap
+with no preview history and a rolling start speed the opening curvature does not support. It
+is a start-position artefact of where that circuit file puts `s = 0`, not a tracking failure:
+the tightest corner on the track (La Source, ~8 m centreline radius) is taken with
+`max |n| = 1.81 m`.
 
 Lap-time differences below roughly 0.05 s are not resolved by this method (fixed mesh, no
 *ph* refinement, interior-point tolerances) — rank configurations with it, do not quote
@@ -692,10 +730,21 @@ The closed-loop sim, by default, drives whichever lap `Circuits/Barcelona_circui
 `ARFWr`/ATD solved to. `simulink/tools/setupTrack.m` points it at any other solved lap:
 
 ```matlab
-info = solveLap('Spa', 'ARFWr', 'ATD', 'Setup', true);   % solve, then set up in one call
-% -- or, with a lap already solved --
-info = setupTrack('solutions/report/Spa/raw/run_Spa_ARFWr_ATD_data.mat');
+setupTrack('simulink/data/laps/run_Spa_ARFWr_ATD_data.mat');   % a lap that ships with the repo
+out = runDemoLap();
+
+info = solveLap('Spa', 'ARFWr', 'ATD', 'Setup', true);         % or solve one and set it up
+info = setupTrack('solutions/report/Spa/raw/run_Spa_ARFWr_ATD_data.mat');   % or a lap you solved
 ```
+
+Three solved laps ship in `simulink/data/laps/` — Barcelona (102.674 s), the Nürburgring
+(108.293 s) and Spa (127.814 s), all `ARFWr`/ATD — so the sim runs on any of the three
+immediately, with nothing solved and CasADi not even on the path. They are slimmed copies of
+the solver's own sidecar (`Scripts/exportLapSidecar.m` strips the warm-start guess, the raw
+NLP vector and the Data Inspector payload, ~11–16 MB down to ~1.3 MB); every tool that reads
+a lap returns identical results on the slim and the full file. See
+`simulink/data/laps/README.md`. `solveLap` finds them too, which is why `solveLap('BCN')` on
+a fresh clone resolves in about a second instead of solving four ladder stages.
 
 `setupTrack(matPath)` does everything the closed-loop sim and both 3D routes need for that
 lap:
