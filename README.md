@@ -511,6 +511,35 @@ written to disk automatically — save the workspace `data` struct yourself if y
 
 ---
 
+## Simulink real-time simulation (simulink/)
+
+`simulink/` is a separate, forward-time closed-loop simulation of the reactive dual-wing
+control law (`ARFWr`) — a real-time/HIL foundation, distinct from the MLTP optimal-control
+solver documented above. It needs MATLAB R2025a + Simulink, Vehicle Dynamics Blockset,
+Simulink 3D Animation (for the Unreal-engine 3D demo) and Computer Vision Toolbox (for the
+on-screen HUD only).
+
+To open and run it, see `simulink/DEMO.md`, which covers both routes: a live in-model view
+(the car driving with the Unreal viewport riding along) and an offline replay with a burned-in
+instrument overlay. `simulink/DEMO.md` also lists the one-time setup this distribution needs
+before either route works — the same synthetic tyre/aero stand-ins as the offline solver above,
+plus a solved-lap file the track visualisation reads its racing line from (not included; you
+generate it with the offline solver on the synthetic data).
+
+Because the shipped tyre and aero data are synthetic, lap times and behaviour from this
+simulation are not comparable to the thesis figures, and — like the offline solver — nothing
+it produces should be read as an active-aerodynamics gain: that comparison lives with the MLTP
+solver alone.
+
+The 3D demo poses a third-party car mesh, "2026 Zenvo Aurora Tur" (and its companion "Agil"
+model, used for the rear wing only) by **Ddiaz Design** on Sketchfab, licensed
+**CC BY-NC-SA 4.0**. It is a game asset, not supplier CAD or a wind-tunnel shape — nothing
+about it feeds any reported number. Full provenance and licence terms are in
+`simulink/viz/assets/zenvo_tur/LICENSE.md` and `simulink/viz/assets/zenvo_agil/LICENSE.md`;
+keep those files with the assets if you redistribute.
+
+---
+
 ## Repository layout
 
     Scripts/      entry points, userOpts.m, vehModel.m, post-processing
