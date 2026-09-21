@@ -21,6 +21,7 @@
 % Options:
 % - 'Static':   fixed front and rear wing angle
 % - 'ActiveRW': fixed front wing angle and active rear wing control
+% Legacy, NOT REBUILT on this vehicle's aero model and rejected at the switch below:
 % - 'Active':   active front and rear wing control
 % - 'AALB':     active asymmetrical front and rear wing control (split front wing & tilt rear wing)
 
@@ -37,18 +38,40 @@ optsOvrFile = fullfile(fileparts(fileparts(mfilename('fullpath'))), 'runOverride
 ovr = struct; if isfile(optsOvrFile), ovr = load(optsOvrFile); end
 clear optsOvrFile
 
-AeroConfig = getfielddef(ovr,'AeroConfig','Static');                                                % select aerodynamic configuration 'Static', 'ActiveRW', 'Active', or 'AALB'
+AeroConfig = getfielddef(ovr,'AeroConfig','Static');                                                % select aerodynamic configuration 'Static' or 'ActiveRW' ('Active'/'AALB' are legacy, see below)
 ATD        = getfielddef(ovr,'ATD','Off');                                                          % select active torque distribution 'On' or 'Off'
 
+if isstring(AeroConfig) && isscalar(AeroConfig), AeroConfig = char(AeroConfig); end
+if ~(ischar(AeroConfig) && ~isempty(AeroConfig) && isrow(AeroConfig))
+    error('userOpts:unknownAeroConfig', ...
+        ['AeroConfig must be a non-empty character vector naming a configuration (got a %s ' ...
+         'of size [%s]). Expected ''Static'' or ''ActiveRW''.'], ...
+        class(AeroConfig), num2str(size(AeroConfig)));
+end
 switch AeroConfig
     case 'Static'                                                                                   % static aero configuration -> front wing & rear wing AoA's determined in vehParams
         vp.ActAero = 0;
     case 'ActiveRW'                                                                                % active aero configuration -> active rear wing AoA | static front wing AoA determined in vehParams
         vp.ActAero = 1;
-    case 'Active'                                                                                   % active aero configuration -> active symmetric front and rear wing AoA
-        vp.ActAero = 2;
-    case 'AALB'                                                                                     % active aerodynamic load balancing configuration -> front wing AoA's & rear wing AoA/Tilt actively controlled
-        vp.ActAero = 3;
+    case {'Active', 'AALB'}
+        % vp.ActAero = 2 ('Active', symmetric front + rear wing AoA) and 3 ('AALB',
+        % split front wing + tilting rear wing) are the ORIGINAL upstream configurations
+        % and were never rebuilt on this vehicle's aero model. Their vehModel.m branches
+        % still read polynomial wing coefficients out of a CFD data set this repository
+        % no longer loads, so selecting either one builds against an undefined `aero`
+        % struct and dies deep inside vehModel.m with nothing pointing back here.
+        % Stopping at the selection is the point: a dead branch that fails late reads
+        % like a defect in the model rather than a configuration nobody finished.
+        error('userOpts:legacyAeroConfig', ...
+            ['AeroConfig = ''%s'' is a legacy configuration that has not been rebuilt on this ' ...
+             'vehicle''s aero model, and does not solve. Use ''Static'' (wing angles fixed in ' ...
+             'vehParams.m) or ''ActiveRW'' (the rear wing - and, through RWMandate, the ' ...
+             'front-wing flap - as continuous NLP controls).'], AeroConfig);
+    otherwise
+        error('userOpts:unknownAeroConfig', ...
+            ['unknown AeroConfig ''%s'' (expected ''Static'' or ''ActiveRW''; ''Active'' and ' ...
+             '''AALB'' are legacy upstream configurations that were never rebuilt here and ' ...
+             'raise userOpts:legacyAeroConfig).'], AeroConfig);
 end
 
 switch ATD
