@@ -244,35 +244,28 @@ run('Parameters\Powertrain.m');
 
 circuit = getfielddef(ovr,'circuit','BCN');
 
-switch circuit
-%-A) Self defined virtual tracks
-    case 'Hairpin'
-        track.k = [zeros(1,75) 0.0975*ones(1,16) zeros(1,73)];                                      % Hairpin
-        track.k = simpleMA(track.k,10,2);                                                           % Smoothen curvature signal
-        track.s = linspace(0,2*length(track.k),length(track.k));                                    % (assume each element of the curvature array is spaced by 2m)
-    case 'Straight'
-        track.k = zeros(1,300);                                                                     % Straight line
-        track.k = simpleMA(track.k,10,2);                                                           % Smoothen curvature signal
-        track.s = linspace(0,2*length(track.k),length(track.k));                                    % (assume each element of the curvature array is spaced by 2m)
-    case 'Sturn'
-        track.k = [zeros(1,100) pi/45*ones(1,20) zeros(1,30) -pi/45*ones(1,20) zeros(1,100)];       % S-turn
-        track.k = simpleMA(track.k,10,2);                                                           % Smoothen curvature signal
-        track.s = linspace(0,2*length(track.k),length(track.k));                                    % (assume each element of the curvature array is spaced by 2m)
-    case 'VirtualTrack'
-        track.k = [zeros(1,150) pi/25*ones(1,20) zeros(1,50) -pi/125*ones(1,90) -pi/50*ones(1,35) pi/50*ones(1,35) -pi/500*(1:0.05:6) zeros(1,200) -pi/20*ones(1,20) zeros(1,80)]; %Virtual track
-        track.k = simpleMA(track.k,10,2);                                                           % Smoothen curvature signal
-        track.s = linspace(0,2*length(track.k),length(track.k));                                    % (assume each element of the curvature array is spaced by 2m)
-%-B) Real circuits data 
-    case 'BCN'
-        track = load('Circuits/Barcelona_circuit.mat');
-    case 'NUR'
-        track = load('Circuits/Nurburgring_circuit.mat');
-    otherwise
-        error('userOpts:unknownCircuit', ...
-            ['Unknown circuit ''%s''. This distribution ships Barcelona (BCN) and ' ...
-             'Nurburgring (NUR) only, plus the four virtual tracks above. Add the ' ...
-             'track .mat to Circuits/ and a case here to use another.'], circuit);
-end
+% Track resolution has ONE owner: Functions\resolveCircuit.m. It holds the four
+% built-in virtual tracks (Hairpin/Straight/Sturn/VirtualTrack, moved here
+% verbatim - same arrays, same simpleMA smoothing, same 2 m assumed spacing), the
+% name aliases for the shipped files (BCN, BCN_S1..S3, NUR), and the convention
+% that resolves every other name to Circuits\<name>_circuit.mat / <name>.mat /
+% an explicit path. It also prints the geometry report (N, length, ds, endpoint
+% gap, R_min, max|dk/ds|, net turn) and refuses a track too coarse to collocate.
+%
+% Why a function and not this switch: everything downstream of here already
+% interpolates the circuit NAME (init-cache token, apex CSV, solutions\ folder),
+% so the switch was the only place a new track needed a code edit. It is also
+% anchored on its OWN location (...\Functions -> repo root) rather than on pwd or
+% a bare-name load() - run() cd's into a script's folder, so pwd is not reliably
+% the repo root here, and a bare name resolves through the whole MATLAB search
+% path and can pick up another checkout's Circuits\. Same reasoning as the
+% runOverride.mat anchoring at the top of this file.
+%
+% Assigning the whole struct (rather than filling track.k/track.s field by field
+% as the virtual-track cases used to) also means a second run('userOpts.m') in a
+% workspace that already holds a track cannot leave stale x/y behind from the
+% previous circuit.
+track = resolveCircuit(circuit);
 
 %% User options
 
