@@ -620,7 +620,7 @@ sx_rl = (vp.Rw*Om_rl - v_rlx)/v_rlx;
 sx_rr = (vp.Rw*Om_rr - v_rrx)/v_rrx;
 
 %%- tyre forces [N]: per-axle Zenvo Pacejka MF5.2 with combined slip
-% (see Parameters/tyreParams_DoNotPublish.m and tyreMF() at the end of this
+% (see Parameters/tyreParams_Zenvo.m and tyreMF() at the end of this
 % file). The load-sensitivity nominal can be shifted per axle - Fz0_shift_f/r
 % are 1 in normal runs and become design parameters in the tyre-optimisation study.
 Fz0eff_f = vp.tyre_f.Fz0 * vp.Fz0_shift_f;

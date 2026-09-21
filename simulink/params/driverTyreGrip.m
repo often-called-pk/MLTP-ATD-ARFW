@@ -33,7 +33,7 @@ function out = driverTyreGrip(vp, what)
 % inside an .slx dialog where they would travel with a shared model file. That
 % is exactly what returning them from a function avoids: the .slx stores the
 % EXPRESSION driverTyreGrip(vp,'mu'), the numbers live only in
-% Parameters/tyreParams_DoNotPublish.m and only in memory. Same design as
+% Parameters/tyreParams_Zenvo.m and only in memory. Same design as
 % simulink/params/tyreParamVec.m, which exists for the identical reason.
 %
 % DEFINITIONS

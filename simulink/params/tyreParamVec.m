@@ -5,9 +5,10 @@ function v = tyreParamVec(ty)
 %
 %   v = tyreParamVec(vp.tyre_f)     % 19-by-1
 %
-% WHY THIS EXISTS. The Zenvo Pacejka coefficients are confidential supplier
-% data (Parameters/tyreParams_DoNotPublish.m). They must never be
-% written into a Simulink dialog, because the .slx would then CARRY them.
+% WHY THIS EXISTS. The Zenvo Pacejka coefficients (Parameters/
+% tyreParams_Zenvo.m) should still never be written into a Simulink dialog,
+% because the .slx would then CARRY them as a standalone copy that can drift
+% from the source file.
 % Plant.slx therefore holds only the EXPRESSION
 %     [vp.Rw; vp.Jw; VXLOW; tyreParamVec(vp.tyre_f); tyreParamVec(vp.tyre_r)]
 % which resolves against the base workspace at model load, exactly the same

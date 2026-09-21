@@ -49,7 +49,7 @@ function [vp, pt] = loadVehicleParams()
 % scope for this vp/pt bridge.
 %
 % Requires Parameters/ and Functions/ on the MATLAB path (getfielddef,
-% setupValue, aeroCollapse, rwAeroMap2D, tyreParams_DoNotPublish, ... all
+% setupValue, aeroCollapse, rwAeroMap2D, tyreParams_Zenvo, ... all
 % live in Functions/ and are called bare by vehParams.m/Powertrain.m).
 % simulink/startup/arfwr_startup.m (registered as the ARFWr_RT project's
 % Startup File) adds both folders to the path automatically when the

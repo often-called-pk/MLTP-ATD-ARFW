@@ -77,11 +77,13 @@ vp.Rw = setupValue('Rw', 0.37);                                         % wheel 
 vp.Jw = setupValue('Jw', 1.7);                                          % wheel rotational inertia                      (kg*m^2) % single value; sheet gives 1.6 F / 1.8 R
 
 % Per-axle Pacejka MF5.2 sets -> vp.tyre_f / vp.tyre_r, including the per-axle
-% rolling-resistance qsy1 that replaces the old scalar vp.f. This file is NOT
-% distributed; supply your own, or copy the synthetic stand-in over it (see
-% README). Plots derived from licensed tyre data should use normalised or
-% unlabelled vertical axes.
-tyreParams_DoNotPublish
+% rolling-resistance qsy1 that replaces the old scalar vp.f. tyreParams_Zenvo.m
+% is the real Zenvo Aurora tyre set, published with permission of Zenvo
+% Automotive, 2026-09 (see its own header). A synthetic stand-in,
+% tyreParams_Synthetic.m, ships alongside it as a bring-your-own-vehicle
+% template (see README). Plots derived from licensed tyre data should use
+% normalised or unlabelled vertical axes.
+tyreParams_Zenvo
 
 % Sheet-wired, but NOT a physical measurement: these shift the nominal load, i.e.
 % they re-tune the tyre MODEL. The coefficients themselves stay unsettable
