@@ -19,9 +19,16 @@ function rib = buildTrackRibbon(matPath, varargin)
 %       'simulink/data/trackRibbon_BCN.mat' -- a geometry-only sidecar (the
 %       SAME track.s/k/x/y/Xl/Xr fields, no x_full/states/controls) resolved
 %       relative to this function's own file, never pwd or a bare-name load.
-%       The geometry-only sidecar carries no data.x_full, so the default
-%       ('Origin', []) falls back to the centreline first point and fires
-%       'buildTrackRibbon:noRacingLine' once -- expected there, not a defect.
+%       It ALSO carries two precomputed pose fields so the default origin and
+%       'PlantFrame' still reproduce the private sidecar's ribbon exactly with
+%       no racing line on hand: data.ribbonOrigin = [x y] (the racing line's
+%       own first point, i.e. exactly what the default 'Origin' branch would
+%       have computed from x_full) and data.plantStart = [x y psi1] (what
+%       localPlantStartFrame would have computed from buildRefPath). Neither
+%       is a solved state -- both are a single fixed pose, pinned to the SAME
+%       track this sidecar already ships. Only when BOTH are absent does the
+%       default fall back to the centreline first point and fire
+%       'buildTrackRibbon:noRacingLine'.
 %
 %   Name-value options
 %     'Origin'      [1x2] translation SUBTRACTED from every coordinate.
@@ -216,17 +223,23 @@ if o.PlantFrame
     % FRAME NOTE. Reuses buildRefPath for the raw -> 1 m uniform resample so
     % that step has one owner; only the de-kink and the start-frame rotation,
     % which live in the git-ignored build_driver.m, are reproduced here.
-    [origin, psi1] = localPlantStartFrame(matPath);
+    [origin, psi1] = localPlantStartFrame(matPath, data);
 elseif isempty(o.Origin)
     if isfield(data,'x_full') && size(data.x_full,1) >= 4 && size(data.x_full,2) == M
         [xL1, yL1] = cartPath(xc, yc, data.x_full(4,:));
         origin = [xL1(1) yL1(1)];
+    elseif isfield(data,'ribbonOrigin') && numel(data.ribbonOrigin) == 2
+        % Geometry-only sidecar: the racing-line first point cannot be
+        % recomputed without x_full, but it was pre-computed from the SAME
+        % private default call and shipped verbatim, so the origin is
+        % bit-identical without needing the racing line at load time.
+        origin = data.ribbonOrigin(:).';
     else
         warning('buildTrackRibbon:noRacingLine', ...
             ['buildTrackRibbon: data.x_full is absent or does not match the %d-point ' ...
-             'track grid; falling back to the CENTRELINE first point as the origin. ' ...
-             'This is not exactly DriverPath''s re-origin -- pass ''Origin'' explicitly ' ...
-             'if the mesh must register against VehStateBus x/y.'], M);
+             'track grid, and data.ribbonOrigin is absent; falling back to the CENTRELINE ' ...
+             'first point as the origin. This is not exactly DriverPath''s re-origin -- ' ...
+             'pass ''Origin'' explicitly if the mesh must register against VehStateBus x/y.'], M);
         origin = [xc(1) yc(1)];
     end
 else
@@ -380,7 +393,7 @@ end
 end
 
 % =========================================================================
-function [org, psi1] = localPlantStartFrame(matPath)
+function [org, psi1] = localPlantStartFrame(matPath, data)
 %LOCALPLANTSTARTFRAME The origin and heading build_driver.m step 1c produces.
 %
 % Reproduces, in order and for the same reasons stated there:
@@ -394,29 +407,49 @@ function [org, psi1] = localPlantStartFrame(matPath)
 % The smoothing is not cosmetic here: it moves psi1 from -0.066 deg to
 % +0.380 deg, and only the latter registers the ribbon against the driven
 % pose (see the PLANT FRAME NOTE in the main help).
-ref = buildRefPath(matPath);
+%
+% When the sidecar carries the solved racing line (x_full/s_full/t_opt --
+% buildRefPath's own required fields, checked below), the pose is computed
+% fresh exactly as above, bit-identical to every prior call. When it does
+% not (the public, geometry-only sidecar), the SAME [x y psi1] pose --
+% precomputed once from the private sidecar by this exact recipe -- is read
+% back from data.plantStart instead: a fixed start pose is not confidential,
+% only the solved states that would otherwise be needed to recompute it are.
+refReq = {'x_full', 's_full', 't_opt'};
+if all(isfield(data, refReq))
+    ref = buildRefPath(matPath);
 
-xy = ref.xy;
-if norm(xy(end,:) - xy(1,:)) < 0.6
-    xy(end,:) = [];                       % cyclic sequence, no repeated point
+    xy = ref.xy;
+    if norm(xy(end,:) - xy(1,:)) < 0.6
+        xy(end,:) = [];                       % cyclic sequence, no repeated point
+    end
+
+    W = 5;                                    % build_driver.m's circMA window
+    sh = (-floor(W/2)):floor(W/2);
+    xyS = zeros(size(xy));
+    for i = 1:numel(sh)
+        xyS = xyS + circshift(xy, -sh(i), 1);
+    end
+    xyS = xyS / numel(sh);
+
+    seg = vecnorm(diff([xyS; xyS(1,:)]), 2, 2);
+    sS  = [0; cumsum(seg)];
+    sQ  = (0:floor(sS(end))-1).';
+    xq  = interp1(sS, [xyS(:,1); xyS(1,1)], sQ, 'linear');
+    yq  = interp1(sS, [xyS(:,2); xyS(1,2)], sQ, 'linear');
+
+    org  = [xq(1) yq(1)];
+    psi1 = atan2(yq(2) - yq(1), xq(2) - xq(1));
+elseif isfield(data, 'plantStart') && numel(data.plantStart) >= 3
+    ps   = data.plantStart(:).';
+    org  = ps(1:2);
+    psi1 = ps(3);
+else
+    error('buildTrackRibbon:noPlantStart', ...
+        ['buildTrackRibbon: ''PlantFrame'' needs either the solved racing line ' ...
+         '(data.x_full/s_full/t_opt) or a precomputed data.plantStart = [x y psi1]; ' ...
+         'neither is present in %s.'], matPath);
 end
-
-W = 5;                                    % build_driver.m's circMA window
-sh = (-floor(W/2)):floor(W/2);
-xyS = zeros(size(xy));
-for i = 1:numel(sh)
-    xyS = xyS + circshift(xy, -sh(i), 1);
-end
-xyS = xyS / numel(sh);
-
-seg = vecnorm(diff([xyS; xyS(1,:)]), 2, 2);
-sS  = [0; cumsum(seg)];
-sQ  = (0:floor(sS(end))-1).';
-xq  = interp1(sS, [xyS(:,1); xyS(1,1)], sQ, 'linear');
-yq  = interp1(sS, [xyS(:,2); xyS(1,2)], sQ, 'linear');
-
-org  = [xq(1) yq(1)];
-psi1 = atan2(yq(2) - yq(1), xq(2) - xq(1));
 end
 
 % =========================================================================
