@@ -56,6 +56,13 @@ function projStartup()
 %                                       6-DOF body. Despite the file
 %                                       name the values are Zenvo SUPPLIER
 %                                       data; see its header.
+%
+%   It then applies the ACTIVE TRACK pack (applyTrackPack), which is what
+%   makes a setupTrack selection survive a MATLAB restart. When no pack is on
+%   disk that call returns before touching Simulink at all, so project open is
+%   unchanged; when one IS on disk it loads DriverPath and ARFWr_Sim to write
+%   their model workspaces, which is the price of having the green Run button
+%   drive the selected track.
 
 try
     [vp, pt] = loadVehicleParams();
@@ -73,6 +80,23 @@ try
 
     fprintf(['projStartup: base workspace loaded -- vp (%s, rwMandate=%d), ' ...
              'pt, sus, act, inrt.\n'], vp.aeroSetting, vp.rwMandate);
+
+    % ---- the active track -------------------------------------------
+    % simulink/data/activeTrack.mat is the single record of which solved lap
+    % the sim is set up for; applyTrackPack puts its reference arrays into
+    % DriverPath's model workspace IN MEMORY, so the selection survives a
+    % MATLAB restart without any .slx ever being rewritten. With no pack on
+    % disk this is a no-op and the models keep their committed Barcelona
+    % bake. WARN, never error: a bad pack must not make the project hard to
+    % open, for the same reason the parameter load below does not.
+    try
+        applyTrackPack('Quiet', true);
+    catch MEtrk
+        warning('ARFWr_RT:startup:trackPackFailed', ...
+            ['projStartup could not apply the active track pack (%s: %s). DriverPath keeps ' ...
+             'its committed reference bake; re-run setupTrack(<solved lap .mat>) to fix it.'], ...
+            MEtrk.identifier, MEtrk.message);
+    end
 
 catch ME
     assignin('base', 'projStartupError', ME);

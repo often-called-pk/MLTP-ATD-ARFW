@@ -11,14 +11,16 @@ function rib = buildTrackRibbon(matPath, varargin)
 %   rib = BUILDTRACKRIBBON(matPath, Name, Value, ...)
 %
 %   matPath (optional) - path to the raw sidecar .mat holding the full `data`
-%       struct, relative to the repo root or absolute. Default is
-%       buildRefPath.m's own default,
-%       'solutions/report/BCN/raw/run_BCN_ARFWr_ATD_data.mat', when that
-%       solved-run sidecar exists (private checkout). When it does not (the
-%       public distribution ships no solved laps), the default falls back to
-%       'simulink/data/trackRibbon_BCN.mat' -- a geometry-only sidecar (the
-%       SAME track.s/k/x/y/Xl/Xr fields, no x_full/states/controls) resolved
-%       relative to this function's own file, never pwd or a bare-name load.
+%       struct, relative to the repo root or absolute. Default is whatever
+%       simulink/tools/activeTrack.m resolves -- the track the sim is
+%       currently set up for. With no simulink/data/activeTrack.mat on disk
+%       that resolver walks the SAME chain this function used to carry
+%       inline: 'solutions/report/BCN/raw/run_BCN_ARFWr_ATD_data.mat' when
+%       that solved-run sidecar exists (private checkout), else the shipped
+%       slim lap, else 'simulink/data/trackRibbon_BCN.mat' -- a geometry-only
+%       sidecar (the SAME track.s/k/x/y/Xl/Xr fields, no x_full/states/
+%       controls) resolved relative to this function's own file, never pwd or
+%       a bare-name load.
 %       It ALSO carries two precomputed pose fields so the default origin and
 %       'PlantFrame' still reproduce the private sidecar's ribbon exactly with
 %       no racing line on hand: data.ribbonOrigin = [x y] (the racing line's
@@ -150,23 +152,15 @@ end
 toolsDir = fileparts(mfilename('fullpath'));          % ...\simulink\tools
 repoRoot = fileparts(fileparts(toolsDir));            % -> repo root
 
-usedDefault = isempty(matPath);
-if usedDefault
-    matPath = 'solutions/report/BCN/raw/run_BCN_ARFWr_ATD_data.mat';
+if isempty(matPath)
+    % activeTrack.m owns the whole default chain (active pack -> private
+    % solved sidecar -> shipped slim lap -> geometry-only trackRibbon_BCN),
+    % and returns an already-absolute path. It used to be spelled out here.
+    matPath = activeTrack();
 end
 matPath = char(matPath);
 if ~java.io.File(matPath).isAbsolute()
     matPath = fullfile(repoRoot, matPath);
-end
-if usedDefault && ~isfile(matPath)
-    % Private solved-run sidecar not shipped (public checkout) -- fall back to
-    % the geometry-only sidecar committed alongside this function. Resolved
-    % from toolsDir (this file's own mfilename('fullpath')), never pwd or a
-    % bare-name load -- see the path-resolution note above.
-    fallbackPath = fullfile(fileparts(toolsDir), 'data', 'trackRibbon_BCN.mat');
-    if isfile(fallbackPath)
-        matPath = fallbackPath;
-    end
 end
 if ~isfile(matPath)
     error('buildTrackRibbon:matNotFound', ...
@@ -220,9 +214,10 @@ end
 psi1 = 0;
 if o.PlantFrame
     % The full rigid transform of build_driver.m step 1c -- see the PLANT
-    % FRAME NOTE. Reuses buildRefPath for the raw -> 1 m uniform resample so
-    % that step has one owner; only the de-kink and the start-frame rotation,
-    % which live in the git-ignored build_driver.m, are reproduced here.
+    % FRAME NOTE. The transform itself now has a single owner,
+    % simulink/tools/buildDriverRef.m (the tracked replacement for the
+    % deleted build_driver.m); this subfunction only picks between computing
+    % it and reading the precomputed pose out of a geometry-only sidecar.
     [origin, psi1] = localPlantStartFrame(matPath, data);
 elseif isempty(o.Origin)
     if isfield(data,'x_full') && size(data.x_full,1) >= 4 && size(data.x_full,2) == M
@@ -396,7 +391,10 @@ end
 function [org, psi1] = localPlantStartFrame(matPath, data)
 %LOCALPLANTSTARTFRAME The origin and heading build_driver.m step 1c produces.
 %
-% Reproduces, in order and for the same reasons stated there:
+% The transform is NOT reimplemented here. simulink/tools/buildDriverRef.m is
+% the single owner: it is the tracked replacement for the deleted
+% build_driver.m and rebuilds the whole DriverPath reference bake (X, Y, Psi,
+% Kap, Vraw, N) from the same sidecar, with the same steps in the same order:
 %   ref  = buildRefPath(matPath)      raw racing line, resampled to 1 m
 %   drop the duplicated closing point (< 0.6 m) so the array is cyclic
 %   circular 5-point moving average  (de-kink: cartPath's forward-difference
@@ -417,29 +415,9 @@ function [org, psi1] = localPlantStartFrame(matPath, data)
 % only the solved states that would otherwise be needed to recompute it are.
 refReq = {'x_full', 's_full', 't_opt'};
 if all(isfield(data, refReq))
-    ref = buildRefPath(matPath);
-
-    xy = ref.xy;
-    if norm(xy(end,:) - xy(1,:)) < 0.6
-        xy(end,:) = [];                       % cyclic sequence, no repeated point
-    end
-
-    W = 5;                                    % build_driver.m's circMA window
-    sh = (-floor(W/2)):floor(W/2);
-    xyS = zeros(size(xy));
-    for i = 1:numel(sh)
-        xyS = xyS + circshift(xy, -sh(i), 1);
-    end
-    xyS = xyS / numel(sh);
-
-    seg = vecnorm(diff([xyS; xyS(1,:)]), 2, 2);
-    sS  = [0; cumsum(seg)];
-    sQ  = (0:floor(sS(end))-1).';
-    xq  = interp1(sS, [xyS(:,1); xyS(1,1)], sQ, 'linear');
-    yq  = interp1(sS, [xyS(:,2); xyS(1,2)], sQ, 'linear');
-
-    org  = [xq(1) yq(1)];
-    psi1 = atan2(yq(2) - yq(1), xq(2) - xq(1));
+    drv  = buildDriverRef(matPath);
+    org  = drv.origin;
+    psi1 = drv.psi1;
 elseif isfield(data, 'plantStart') && numel(data.plantStart) >= 3
     ps   = data.plantStart(:).';
     org  = ps(1:2);

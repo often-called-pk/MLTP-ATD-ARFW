@@ -19,8 +19,14 @@ runOverride.mat
 # Solver output
 solutions/
 
-# Local stand-ins produced by the README recipe. On a real-data install these
-# exact paths hold licensed supplier data, so they must never be committed from
-# either kind of checkout.
-Parameters/tyreParams_DoNotPublish.m
-Parameters/aeroMap_Tur.mat
+# Per-user sim state: WHICH track the Simulink/3D routes are currently pointed
+# at (simulink/tools/setupTrack.m writes both). activeTrack.mat names one
+# machine's solved-lap sidecar by path and carries that lap's reference bake;
+# trackRibbon_<TAG>.mat is the geometry sidecar generated beside it. Committing
+# either would re-point a second person's sim at a track their checkout may not
+# even hold - the same hazard runOverride.mat is ignored for. The shipped
+# Barcelona ribbon, trackRibbon_BCN.mat, IS tracked: it is the default the
+# public distribution falls back to when no solved lap is on hand.
+simulink/data/activeTrack.mat
+simulink/data/trackRibbon_*.mat
+!simulink/data/trackRibbon_BCN.mat

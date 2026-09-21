@@ -9,8 +9,11 @@ function ref = buildRefPath(matPath)
 %   decision: "rebuild via curv2cart + n(s)").
 %
 %   matPath (optional) - path to the raw sidecar .mat, relative to the repo
-%       root or absolute. Default:
-%       'solutions/report/BCN/raw/run_BCN_ARFWr_ATD_data.mat'
+%       root or absolute. Default: whatever simulink/tools/activeTrack.m
+%       resolves, i.e. the track the sim is currently set up for. With no
+%       simulink/data/activeTrack.mat on disk that is
+%       'solutions/report/BCN/raw/run_BCN_ARFWr_ATD_data.mat', exactly as it
+%       was before the resolver existed.
 %
 %   Method (mirrors Scripts/MLTP.m's own post-processing, e.g. MLTP.m:832-838):
 %     1. Centreline (x0,y0) from data.track.x/y if present, else rebuilt via
@@ -53,7 +56,7 @@ function ref = buildRefPath(matPath)
 %   filename with a stale one.
 
 if nargin < 1 || isempty(matPath)
-    matPath = 'solutions/report/BCN/raw/run_BCN_ARFWr_ATD_data.mat';
+    matPath = activeTrack();       % single owner of "which track is active"
 end
 
 toolsDir = fileparts(mfilename('fullpath'));         % ...\simulink\tools
