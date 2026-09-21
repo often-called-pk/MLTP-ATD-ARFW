@@ -65,8 +65,21 @@ out  = runDemoLap();                                     % drives whatever setup
 ```
 Nothing tracked is written by default (`'Persist', false`, the default, is in-memory only);
 `simulink/startup/projStartup.m` re-applies the last active track automatically on project open.
-Measured on Nurburgring, no re-tuning: the closed loop completes the lap in 145.113 s, maximum
-path error 1.962 m, zero off-track excursions.
+Opening the project is enough to call `solveLap` and `setupTrack` by name — `arfwr_startup.m`
+puts `Scripts/`, `Functions/`, `Parameters/` and `Circuits/` on the path.
+
+`setupTrack` also decides where the sim's lap **starts**. Its default, `'StartAt', 'auto'`,
+keeps the circuit file's own `s = 0` whenever the reference stays above R = 200 m over the
+first 100 m (Barcelona and Nurburgring both do, unchanged), and otherwise rotates the lap to
+begin 30 m into its longest straight — the driver launches at plan speed with no steer or
+preview history and cannot hold a corner from a standing start. Pass `'StartAt', 'solved'` to
+force the file's own start line, or a distance in metres to place it by hand.
+
+Measured, no re-tuning: Nurburgring completes in 145.113 s, maximum path error 1.962 m, zero
+off-track excursions. Spa — whose `s = 0` sits on the exit of La Source, so `'auto'` moves the
+start 1242 m onto the Kemmel straight — completes in 177.969 s, maximum path error 2.059 m,
+zero off-track excursions; from the file's own start line the same lap runs wide over its
+opening 26 m (4492 off-track samples, 4.745 m) and is clean everywhere after.
 
 ## Notes
 - Lap-time numbers from this sim are NOT active-aero gains; those stay with the MLTP solver. The

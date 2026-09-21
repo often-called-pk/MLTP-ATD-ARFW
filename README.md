@@ -485,15 +485,16 @@ The differences between the four wing configurations on Spa are all below 0.05 s
 for four configurations on a new track, not as a ranking, and none of them is "faster" than
 another.
 
-The same Spa lap also drives the closed-loop Simulink sim with no controller retuning: the
-car completes the lap in 177.888 s with `max |n| = 2.059 m` and zero off-track samples over
-the 6915 m after the opening corner. It does run wide in the first 26 m — `max |n| = 4.745 m`
-— because Spa's `s = 0` sits on a corner exit (reference radius down to 29 m by `s = 9` m)
-while Barcelona's and the Nürburgring's both start on a straight, so the driver begins the lap
-with no preview history and a rolling start speed the opening curvature does not support. It
-is a start-position artefact of where that circuit file puts `s = 0`, not a tracking failure:
-the tightest corner on the track (La Source, ~8 m centreline radius) is taken with
-`max |n| = 1.81 m`.
+The same Spa lap also drives the closed-loop Simulink sim with no controller retuning:
+**lap 177.969 s, `max |n| = 2.059 m`, p90 0.872 m, zero off-track samples.** That is with
+`setupTrack`'s default `'StartAt', 'auto'`, which moves the sim's start line 1242 m along the
+lap because Spa's `s = 0` sits on the exit of La Source. Keeping the circuit file's own
+`s = 0` instead (`'StartAt', 'solved'`) gives a lap of 177.888 s and the same 2.059 m
+everywhere past the first 50 m, but 4492 off-track samples and `max |n| = 4.745 m` — every
+one of them inside the first 26 m, where the driver starts at plan speed with no steering or
+preview history and a reference radius of 29 m by `s = 9` m. It was a start-position
+artefact of where that circuit file puts `s = 0`, not a tracking failure, and the start shift
+is what removes it; see [Run the sim on a new track](#run-the-sim-on-a-new-track).
 
 Lap-time differences below roughly 0.05 s are not resolved by this method (fixed mesh, no
 *ph* refinement, interior-point tolerances) — rank configurations with it, do not quote
@@ -706,6 +707,12 @@ To open and run it, see `simulink/DEMO.md`, which covers both routes: a live in-
 instrument overlay. It runs the shipped Barcelona lap out of the box, using the real Zenvo
 tyre/aero data — no setup step, same as the offline solver.
 
+Opening `simulink/ARFWr_RT.prj` is enough to reach the solver entry points too: its startup
+file puts `Parameters/`, `Functions/`, `Circuits/` **and `Scripts/`** on the MATLAB path, so
+`solveLap`, `setupTrack` and `exportLapSidecar` all resolve from a session that opened nothing
+but the project. (A real solve still needs CasADi, which the project deliberately does not
+add — see [Requirements](#requirements).)
+
 The simulation is a **tracking exercise**, not a lap-time result: a Stanley-style path
 follower plus a grip-limited speed plan chasing the MLTP racing line, not a re-solve of the
 optimal-control problem. The shipped Barcelona demo closes a lap in 139.394 s against the
@@ -763,6 +770,47 @@ lap:
    through `simulink/tools/activeTrack.m`.
 5. Applies the arrays into `DriverPath`'s model workspace **in memory** — every route,
    including the green Run button, immediately drives the new track.
+
+### Where the sim's lap starts (`'StartAt'`)
+
+Step 1 also decides **where the sim's lap begins**, which is not always where the solver's
+`s = 0` is. The forward-time driver launches at the plan speed with zero steering and no
+preview history, so the first couple of seconds are a transient. On a circuit whose
+start/finish line is on a straight that costs nothing; on one whose `s = 0` is mid-corner it
+puts the car off the road before the driver has anything to track.
+
+`setupTrack`'s default, `'StartAt', 'auto'`, therefore does **nothing at all** unless the
+start really is in a corner, and its keep test is deliberately lenient so a track that
+already works is never disturbed:
+
+- **Keep** the circuit file's own `s = 0` when the reference radius stays above **200 m**
+  over the first 100 m. Barcelona (2913 m) and the Nürburgring (351 m) both keep theirs, and
+  every array is bit-identical to what the repo shipped before this option existed.
+- **Otherwise** rotate the 1 m reference grid so the lap starts **30 m into its longest
+  straight** (the longest run with radius above 300 m), which leaves far more than the
+  driver's 10 m preview and 15 m speed look-ahead ahead of it.
+
+Everything that depends on where the lap starts moves together: the plant-frame origin and
+heading, the speed plan, the 3D ribbon, the rolling-start speed and the lap counter. The
+shift is a circular rotation, so the lap itself — its geometry, its length and its speed
+profile — is unchanged; only the point the clock starts from moves.
+
+| Spa, `ARFWr`/ATD | lap | max \|n\| | p90 \|n\| | off-track |
+|---|---|---|---|---|
+| `'StartAt', 'solved'` (circuit file's `s = 0`, on the exit of La Source) | 177.888 s | 4.745 m | 0.889 m | 4492 |
+| `'StartAt', 'auto'` (shifted 1242 m, onto the Kemmel straight) | **177.969 s** | **2.059 m** | 0.872 m | **0** |
+
+Both laps complete and the driver is identical — all 4492 off-track samples of the first row
+are inside its opening 26 m, and past 50 m it already tracks to the same 2.059 m. Pass
+`'StartAt', 'solved'` to force the circuit file's own start line, or a distance in metres to
+place the start by hand:
+
+```matlab
+setupTrack(matPath, 'StartAt', 'solved');   % never shift
+setupTrack(matPath, 'StartAt', 2000);       % start 2000 m along the solved lap
+```
+
+`setupTrack` prints the shift it chose and why, and records both in the track pack.
 
 By default nothing tracked is written to disk: the model workspace change is in-memory only
 (the dirty flag is restored), so closing `DriverPath` without saving drops back to the
