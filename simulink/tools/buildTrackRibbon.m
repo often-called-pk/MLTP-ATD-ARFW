@@ -13,7 +13,15 @@ function rib = buildTrackRibbon(matPath, varargin)
 %   matPath (optional) - path to the raw sidecar .mat holding the full `data`
 %       struct, relative to the repo root or absolute. Default is
 %       buildRefPath.m's own default,
-%       'solutions/report/BCN/raw/run_BCN_ARFWr_ATD_data.mat'.
+%       'solutions/report/BCN/raw/run_BCN_ARFWr_ATD_data.mat', when that
+%       solved-run sidecar exists (private checkout). When it does not (the
+%       public distribution ships no solved laps), the default falls back to
+%       'simulink/data/trackRibbon_BCN.mat' -- a geometry-only sidecar (the
+%       SAME track.s/k/x/y/Xl/Xr fields, no x_full/states/controls) resolved
+%       relative to this function's own file, never pwd or a bare-name load.
+%       The geometry-only sidecar carries no data.x_full, so the default
+%       ('Origin', []) falls back to the centreline first point and fires
+%       'buildTrackRibbon:noRacingLine' once -- expected there, not a defect.
 %
 %   Name-value options
 %     'Origin'      [1x2] translation SUBTRACTED from every coordinate.
@@ -135,12 +143,23 @@ end
 toolsDir = fileparts(mfilename('fullpath'));          % ...\simulink\tools
 repoRoot = fileparts(fileparts(toolsDir));            % -> repo root
 
-if isempty(matPath)
+usedDefault = isempty(matPath);
+if usedDefault
     matPath = 'solutions/report/BCN/raw/run_BCN_ARFWr_ATD_data.mat';
 end
 matPath = char(matPath);
 if ~java.io.File(matPath).isAbsolute()
     matPath = fullfile(repoRoot, matPath);
+end
+if usedDefault && ~isfile(matPath)
+    % Private solved-run sidecar not shipped (public checkout) -- fall back to
+    % the geometry-only sidecar committed alongside this function. Resolved
+    % from toolsDir (this file's own mfilename('fullpath')), never pwd or a
+    % bare-name load -- see the path-resolution note above.
+    fallbackPath = fullfile(fileparts(toolsDir), 'data', 'trackRibbon_BCN.mat');
+    if isfile(fallbackPath)
+        matPath = fallbackPath;
+    end
 end
 if ~isfile(matPath)
     error('buildTrackRibbon:matNotFound', ...

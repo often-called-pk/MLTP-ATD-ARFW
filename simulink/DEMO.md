@@ -17,14 +17,10 @@ copyfile('Parameters/aeroMap_Synthetic.mat',  'Parameters/aeroMap_Tur.mat');
 ```
 Both are already `.gitignore`d, so this is a one-time local step, not a commit.
 
-The 3D visualisation (both routes below) also needs a solved-lap sidecar at
-`solutions/report/BCN/raw/run_BCN_ARFWr_ATD_data.mat` — the track ribbon mesh is built from a
-solved racing line, not from the raw circuit file, and that sidecar is not part of this
-distribution. Produce your own by running the offline solver on the synthetic data (top-level
-README, `Scripts/MLTP.m` with the ARFWr/reactive-wing configuration) and saving its `data`
-struct to that exact path. Without it, `runDemoLap` still runs the closed-loop lap correctly
-(no visualisation call is on that path), but switching the model to `Unreal3D` or calling
-`unrealPlayback` errors with `buildTrackRibbon:matNotFound` until the sidecar exists.
+The 3D visualisation's track ribbon mesh normally comes from a solved-lap sidecar, which is not
+part of this distribution; `buildTrackRibbon` falls back to a geometry-only sidecar shipped at
+`simulink/data/trackRibbon_BCN.mat` (track centreline and edges only, no solved states), so both
+routes below work out of the box.
 
 ## A. Live, in the model (viewer window rides the car)
 1. Open `simulink/ARFWr_RT.prj` (loads `vp`, `pt`, paths).
