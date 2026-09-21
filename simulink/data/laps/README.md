@@ -53,9 +53,10 @@ use.
   `solutions/report/<circuit>/raw/`. This is what makes `solveLap('BCN')` on a
   fresh clone resolve in about a second instead of solving four ladder stages.
 - `simulink/tools/activeTrack.m` — third step of its fallback chain, after an
-  explicitly selected track (`simulink/data/activeTrack.mat`) and the private
-  `solutions/` tree. So with no active track selected, the sim tools default to
-  the Barcelona lap here.
+  explicitly selected track (`simulink/data/activeTrack.mat`) and your own local
+  solves under `solutions/` (git-ignored, created the first time you solve
+  something). So with no active track selected and nothing solved locally, the
+  sim tools default to the Barcelona lap here.
 - `simulink/tools/setupTrack.m` — point the whole sim at one of them directly:
 
 ```matlab

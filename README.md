@@ -61,16 +61,18 @@ covers swapping either set in.
 
 | | Needed | Notes |
 |---|---|---|
-| MATLAB | R2021b or newer | Developed against R2021b–R2022b; this distribution was last exercised on **R2025a Update 1** |
+| MATLAB | **R2025a** | Developed and tested on R2025a Update 1. The code descends from an R2021b–R2022b project and uses nothing newer that we know of, but no older release has been exercised since, so R2025a is what is claimed |
 | CasADi | **3.7.2** | Not a MathWorks product — install separately, see below. This is the only version tested; earlier 3.x releases may work but are unverified |
 | Simulink | Required to finish a run | The optimisation itself does not use it, but the post-processing does. See the [warning below](#simulink-is-required-to-finish-a-run) |
 
-No other MathWorks toolboxes are required for the offline solver. Everything else the code
-calls (`interp1`, `timeseries`, `table`, `writetable`, `polyfit`) is base MATLAB. CasADi is
-needed only for a real solve — `solveLap` on a track that already has a shipped or
-previously solved lap needs no CasADi at all (see [Solve any track](#solve-any-track)).
-The `simulink/` real-time sim is a separate MATLAB project with its own toolbox
-requirements (below) and does **not** need CasADi on the path at all.
+**No other MathWorks toolbox is required for the offline solver** — base MATLAB only.
+Everything the solver calls (`interp1`, `timeseries`, `table`, `writetable`, `polyfit`) ships
+with MATLAB itself; the one Statistics-and-Machine-Learning call it used to make, `prctile`,
+is now `Functions/pctile.m`, which reproduces it exactly. CasADi is needed only for a real
+solve — `solveLap` on a track that already has a shipped or previously solved lap needs no
+CasADi at all (see [Solve any track](#solve-any-track)). The `simulink/` real-time sim is a
+separate MATLAB project with its own toolbox requirements (below) and does **not** need CasADi
+on the path at all.
 
 ---
 
@@ -208,9 +210,12 @@ Subsequent runs of the same configuration reuse that cache and report:
 ### Step 5 — Verify your setup without a full solve
 
 A full solve is expensive. To confirm the setup is correct in seconds, build the model
-without solving — from the repository root:
+without solving — from the repository root, **in a clean workspace**: these are scripts, and
+they inherit whatever is already in the workspace, so a leftover `vp`, `c` or `track` from an
+earlier run can make this build something other than the committed default.
 
 ```matlab
+clear
 run('userOpts.m');    % loads config, vehicle, powertrain, track, aero collapse
 run('vehModel.m');    % builds the symbolic model
 fprintf('nx = %d, nu = %d, dx is %s\n', nx, nu, class(dx));
@@ -350,17 +355,31 @@ saved, converged lap: it resolves the circuit, walks the warm-start ladder, iter
 entry speed to closure, and writes the same sidecar `.mat` the Simulink/3D tools read.
 
 ```matlab
-info = solveLap('BCN');                              % shipped lap, resolves in seconds
-info = solveLap('Spa');                               % real solve, default config (ARFWr/ATD)
-info = solveLap('Spa', 'ARW', 'ATD');                  % just the free-wing stage
+info = solveLap('BCN');                                % shipped lap, resolves in under a second
+info = solveLap('Spa');                                % also shipped — resolves, does not solve
+info = solveLap('Spa', 'ARW', 'ATD', 'Force', true);   % a REAL solve of the free-wing stage
+info = solveLap('Silverstone');                        % a track you added: solves for real
 info = solveLap('Spa', 'DryRun', true);                % what would it do, without solving?
 info = solveLap('BCN', 'ARFWr', 'ATD', 'Force', true); % re-solve, ignore the existing .mat
-info = solveLap('Spa', 'ARFWr', 'ATD', 'Setup', true); % solve, then hand off to the Simulink sim
+info = solveLap('Spa', 'ARFWr', 'ATD', 'Setup', true); % resolve/solve, then hand to the sim
 ```
+
+All three shipped circuits already have a solved lap in `simulink/data/laps/`, so **naming one
+of them resolves rather than solves** — measured at about 0.2 s. Only a circuit with no lap on
+disk, or an explicit `'Force', true`, starts IPOPT. `info.source` says which happened
+(`'existing'` or `'solved'`), and `info.solvedOn` is the resolved file's own stamp, not the
+time of your call — that is `info.resolvedOn`.
 
 CasADi must be on the MATLAB path first ([Step 1](#step-1-install-casadi)) — but only for
 a stage that actually solves; a request that resolves to an existing lap needs no CasADi at
-all, which is why `solveLap('BCN')` above returns in seconds on a fresh clone.
+all, which is why `solveLap('BCN')` above returns immediately on a fresh clone.
+
+`solveLap` runs `MLTP.m`, which clears the workspace. `solveLap` snapshots the caller's base
+workspace before the first stage that really solves and restores it afterwards — on a normal
+return and on an error alike — so a solve no longer takes the Simulink project's `vp`, `pt`,
+`sus`, `act`, `inrt` and `hudGear` with it, and `solveLap(..., 'Setup', true)` followed by
+`runDemoLap()` works in one session. The result is not in the workspace and never was: it is
+the returned `info` and the saved `.mat` at `info.matPath`.
 
 ### Circuit files
 
@@ -479,6 +498,23 @@ entry-speed passes, because that ladder run predates the seed carry-forward desc
 [Entry-speed closure](#entry-speed-closure) — every rung restarted at the 75 m/s cold seed,
 missed closure and re-solved. With the carry-forward in place those second passes largely
 disappear, so treat the two-pass figure as an upper bound on what the same run costs today.
+
+### Measured: a fresh clone, and a track supplied by the user
+
+The same `ARW`/Spa solve was then repeated from a **fresh clone of this repository**, with
+nothing on the path but the clone and CasADi:
+`solveLap('Spa', 'ARW', 'ATD', 'Force', true)` returned `Solve_Succeeded` at **127.823 s over
+563 IPOPT iterations, about 10 minutes of wall time** — the same lap time and the same
+iteration count as the solve above, from a clone that had never run anything.
+
+A circuit the repository had never seen was then dropped into `Circuits/` — a mirrored
+Barcelona, i.e. the same geometry with the sign of the curvature flipped, which is a genuinely
+different track to the solver and a known-good answer to the reader. It needed no code edit:
+`resolveCircuit` picked it up by basename, the ladder solved it to **102.613 s** (`ARW`/ATD),
+and the closed-loop Simulink sim then drove it at **142.943 s with zero off-track samples**,
+with the driver calibration untouched. The 0.014 s between that and Barcelona's own 102.627 s
+is **not resolved by the present numerical method** and must not be read as the mirrored track
+being faster or slower; it is the expected scatter of the same problem posed two ways.
 
 The differences between the four wing configurations on Spa are all below 0.05 s, which is
 **not resolved by the present numerical method** — they are reported as converged lap times
@@ -633,6 +669,18 @@ differentiable piecewise polynomial. It fails loudly rather than returning a bad
 
 A healthy run prints a one-line summary (clamp onset speeds, per-axle residuals, iteration
 count) before solving.
+
+### `buildRefPath` and the endpoint gap
+
+`simulink/tools/buildRefPath.m` reports `ref.closeGap`, the distance between the first and last
+point of the reconstructed racing line, and warns when it exceeds a closure tolerance. That
+tolerance is **not** a flat number: it is twice the circuit file's own sample spacing, floored
+at 5 m. A circuit `.mat` stores one lap as N samples that do not repeat the start point, so its
+last sample sits one grid step short of the finish line and the racing line inherits that — the
+Nürburgring lap misses by 5.026 m and Spa by 8.807 m on their 5 m grids, while Barcelona misses
+by 0.034 m on a 1 m grid. Those are properties of how the tracks are sampled, not open loops,
+and they are silent. A `buildRefPath:notClosed` warning therefore means something real: a
+circuit whose ends genuinely do not meet, which is usually a truncated or mis-stitched file.
 
 ### Track data must be smooth
 
@@ -846,6 +894,16 @@ because anything was adjusted for it.
     Parameters/   vehicle, powertrain, real Zenvo tyre/aero data, synthetic template
     Functions/    model helpers, aero collapse, wing maps, warm-start selection, resolveCircuit.m
     Circuits/     track .mat files (need s and k; x, y optional for plotting)
+    simulink/     the closed-loop real-time sim: its own MATLAB project (ARFWr_RT.prj),
+                  models, parameters, tools, 3D/HUD visualisation, validation gates,
+                  DEMO.md, and the three ready-made laps in simulink/data/laps/
+
+Two folders are created on demand and are **not tracked by git**:
+
+    solutions/    where a solve lands — solutions/report/<circuit>/raw/ holds the lap
+                  .mat that solveLap writes and the Simulink tools read, solutions/apex/
+                  the corner-apex CSVs
+    Data/         per-circuit warm-start caches, Data/<circuit>/initialisation/
 
 Circuits included: **Barcelona-Catalunya** (`BCN`), **Nurburgring** (`NUR`) and
 **Spa-Francorchamps** (`Spa`), plus four self-defined virtual tracks (`Hairpin`, `Straight`,

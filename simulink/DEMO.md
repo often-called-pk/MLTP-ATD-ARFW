@@ -46,14 +46,27 @@ after opening the project.
    Do not save the model.
 
 ## B. Offline replay with HUD (video + stills)
-Uses a logged lap (`simulink/work/t53_lap.mat`, git-ignored — regenerate with `out = runDemoLap();`
-then `save simulink/work/t53_lap.mat out`).
+`unrealPlayback` takes the `out` struct `runDemoLap` returns, so the normal route saves nothing:
 ```matlab
-unrealPlayback('simulink/work/t53_lap.mat', 'Camera','front', 'HUD',true, ...
+out = runDemoLap();
+unrealPlayback(out, 'Camera','front', 'HUD',true, ...
     'Window',[0 139.39], 'Record','simulink/work/demo_unreal.mp4');
 ```
+Only save the lap if you want to replay it in a later MATLAB session. `out` carries the whole
+logged Dataset and is **about 500 MB** for a full Barcelona lap, so saving it is a deliberate act,
+not a habit. Use `runDemoLap`'s own `'Save'`: it anchors the path to the repository root and
+creates the folder, unlike a bare `save 'simulink/work/…'`, which resolves against `pwd` — which
+is `<repo>/simulink` once the project is open — into a `simulink/work/` a fresh clone does not
+have.
+```matlab
+out = runDemoLap('Save', 'simulink/work/t53_lap.mat');   % ~500 MB, git-ignored
+unrealPlayback('simulink/work/t53_lap.mat', 'Camera','front', 'HUD',true);
+```
 Cameras: `quarter` (default), `chase`, `low`, `high`, `front` (steered wheel + front flap + wing),
-`side` (wheel spin). `'Speed',2` = 2× playback. Frames land next to the .mp4.
+`side` (wheel spin). `'Speed',2` = 2× playback. Stills are **opt-in**: pass `'Stills',[t1 t2 …]`
+(logged times in seconds) and one PNG per time lands next to the `.mp4` as
+`<video>_Zenvo_t<sec>.png`. Without `'Stills'` only the video is written, and without `'Record'`
+nothing is written at all.
 
 ## Run on a different track
 `simulink/tools/setupTrack.m` points every tool above at a different solved lap in one call —
@@ -63,6 +76,12 @@ see the top-level README's "Run the sim on a new track" section for the full mec
 info = solveLap('Spa', 'ARFWr', 'ATD', 'Setup', true);   % solve a new track, then set it up
 out  = runDemoLap();                                     % drives whatever setupTrack last set
 ```
+`solveLap` runs `MLTP`, which clears the workspace — so `solveLap` snapshots the caller's base
+workspace before its first real solve and puts it back afterwards (and on error). `vp`, `pt`,
+`sus`, `act`, `inrt` and `hudGear` therefore survive a solve and `runDemoLap` runs straight after,
+which is what makes the two lines above work in one session. The result is in the returned `info`
+and in the saved `.mat` at `info.matPath`, never in the base workspace.
+
 Nothing tracked is written by default (`'Persist', false`, the default, is in-memory only);
 `simulink/startup/projStartup.m` re-applies the last active track automatically on project open.
 Opening the project is enough to call `solveLap` and `setupTrack` by name — `arfwr_startup.m`
