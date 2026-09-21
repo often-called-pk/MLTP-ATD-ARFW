@@ -14,42 +14,46 @@ active aerodynamic surfaces (rear wing, front-wing flap) and active torque distr
 
 ## Contents
 
-- [Read this first](#read-this-first-the-repository-does-not-run-out-of-the-box)
+- [Read this first](#read-this-first-the-repository-runs-out-of-the-box)
 - [Requirements](#requirements)
 - [Setup, step by step](#setup-step-by-step)
 - [What you must supply](#what-you-must-supply)
 - [Running a solve](#running-a-solve)
+- [Solve any track](#solve-any-track)
 - [Configuration reference](#configuration-reference)
 - [Things to be wary of](#things-to-be-wary-of)
 - [What gets written to disk](#what-gets-written-to-disk)
 - [Model](#model)
+- [Simulink real-time simulation](#simulink-real-time-simulation-simulink)
+- [Run the sim on a new track](#run-the-sim-on-a-new-track)
 - [Repository layout](#repository-layout)
 - [Attribution](#attribution)
 - [Licence](#licence)
 
 ---
 
-## Read this first: the repository does not run out of the box
+## Read this first: the repository runs out of the box
 
-The code here is the **complete, unmodified framework**. What is missing is the vehicle
-data, which is confidential and has been withheld. Two files the solver requires are
-therefore absent:
+This distribution ships the **real Zenvo Aurora vehicle data** the framework was built
+around, published with permission of Zenvo Automotive (2026-09):
 
-| Expected path | What it is |
+| Path | What it is |
 |---|---|
-| `Parameters/tyreParams_DoNotPublish.m` | Per-axle Pacejka MF5.2 tyre coefficients |
+| `Parameters/tyreParams_Zenvo.m` | Per-axle Pacejka MF5.2 tyre coefficients |
 | `Parameters/aeroMap_Tur.mat` | Ride-height lift map (front/rear lift coefficient over a ride-height grid) |
 
-Running `MLTP` without them **will error**, and that is deliberate. The first thing you
-will see is:
+There is no setup step for these two files — `MLTP` (and `solveLap`, and the Simulink
+sim) solve a real vehicle at Barcelona-Catalunya or Nurburgring immediately after
+[Step 2](#step-2-get-the-repository). The tyre coefficients are still supplier data, not
+public in the ordinary sense: they must not be reproduced outside this repository (in a
+report, a paper, a slide), and any plot of them should use a normalised or unlabelled
+vertical axis. Using and modifying them here, and rebuilding the model around them, is
+what they were cleared for.
 
-    Unrecognized function or variable 'tyreParams_DoNotPublish'.
-
-The loading machinery has been left exactly as it is rather than stubbed out, so that when
-you drop in your own data the framework behaves identically to the original.
-
-**Synthetic stand-ins are included** so you can exercise the framework immediately without
-any real vehicle data. [Step 3](#step-3-supply-the-two-data-files) covers both routes.
+**Two invented, non-confidential data sets also ship**, `tyreParams_Synthetic.m` and
+`aeroMap_Synthetic.mat`, as a template for running the framework on a *different* vehicle
+you do not have supplier data for. [Step 3](#step-3-optional-swap-in-different-vehicle-data)
+covers swapping either set in.
 
 ---
 
@@ -58,11 +62,15 @@ any real vehicle data. [Step 3](#step-3-supply-the-two-data-files) covers both r
 | | Needed | Notes |
 |---|---|---|
 | MATLAB | R2021b or newer | Developed against R2021b–R2022b; this distribution was last exercised on **R2025a Update 1** |
-| CasADi | 3.5.5 or newer | Last exercised on **3.7.2**. Not a MathWorks product — install separately, see below |
+| CasADi | **3.7.2** | Not a MathWorks product — install separately, see below. This is the only version tested; earlier 3.x releases may work but are unverified |
 | Simulink | Required to finish a run | The optimisation itself does not use it, but the post-processing does. See the [warning below](#simulink-is-required-to-finish-a-run) |
 
-No other MathWorks toolboxes are required. Everything else the code calls (`interp1`,
-`timeseries`, `table`, `writetable`, `polyfit`) is base MATLAB.
+No other MathWorks toolboxes are required for the offline solver. Everything else the code
+calls (`interp1`, `timeseries`, `table`, `writetable`, `polyfit`) is base MATLAB. CasADi is
+needed only for a real solve — `solveLap` on a track that already has a shipped or
+previously solved lap needs no CasADi at all (see [Solve any track](#solve-any-track)).
+The `simulink/` real-time sim is a separate MATLAB project with its own toolbox
+requirements (below) and does **not** need CasADi on the path at all.
 
 ---
 
@@ -120,43 +128,47 @@ cd 'C:\path\to\MLTP-ATD-ARFW'
 addpath(genpath(pwd))
 ```
 
-### Step 3 — Supply the two data files
+### Step 3 — (Optional) swap in different vehicle data
 
-Choose **one** of the two routes below.
+Skip this step for a first run — the real Zenvo Aurora data is already in place and
+`Parameters/vehParams.m` loads it by name (`tyreParams_Zenvo`, `aeroMap_Tur.mat`). This
+step is only for modelling a *different* vehicle.
 
-#### Route A — the synthetic stand-ins (recommended for a first run)
+`Parameters/vehParams.m` always loads two files by their fixed names:
 
-Two invented datasets ship with the repository. Copy each over the filename the solver
-expects. From the repository root, in MATLAB:
+| Expected path | What it is | Shipped as |
+|---|---|---|
+| `Parameters/tyreParams_Zenvo.m` | Per-axle Pacejka MF5.2 tyre coefficients | the real data |
+| `Parameters/aeroMap_Tur.mat` | Ride-height lift map (front/rear lift coefficient over a ride-height grid) | the real data |
+
+To model another vehicle, either edit those two files in place, or point
+`Parameters/vehParams.m` at the shipped **synthetic template** instead — an invented,
+non-confidential data set with the same shape, meant to be edited:
 
 ```matlab
-copyfile('Parameters/tyreParams_Synthetic.m', 'Parameters/tyreParams_DoNotPublish.m');
+copyfile('Parameters/tyreParams_Synthetic.m', 'Parameters/tyreParams_Zenvo.m');
 copyfile('Parameters/aeroMap_Synthetic.mat',  'Parameters/aeroMap_Tur.mat');
 ```
 
-That is the whole setup. To regenerate the aero map from scratch instead of copying it
-(the generator is readable and documents the shape it produces):
+To regenerate the synthetic aero map from scratch instead of copying it (the generator is
+readable and documents the shape it produces):
 
 ```matlab
 makeSyntheticAeroMap(fullfile(pwd, 'Parameters', 'aeroMap_Tur.mat'));
 ```
 
-> **These numbers are invented.** They are physically self-consistent and produce a
-> well-posed problem, but they describe no real vehicle, and the solver settings in
-> `userOpts.m` are *not* tuned for them. Expect to re-derive the boundary velocity `vi`,
-> and possibly the tolerances, before IPOPT converges — see
-> [Things to be wary of](#things-to-be-wary-of). They exist to let you read and exercise
-> the code, not to produce meaningful lap times.
+> **The synthetic numbers are invented.** They are physically self-consistent and produce
+> a well-posed problem, but they describe no real vehicle, and the solver settings in
+> `userOpts.m` are tuned for the *real* Zenvo data. Expect to re-derive the boundary
+> velocity `vi`, and possibly the tolerances, before IPOPT converges on them — see
+> [Things to be wary of](#things-to-be-wary-of).
 
-#### Route B — your own vehicle data
-
-Provide both files at the paths in the table above.
+Whichever data you load, the field set is fixed:
 
 - **Tyres** — a *script* (not a function) that defines `vp.tyre_f` and `vp.tyre_r`, each a
   struct of Pacejka MF5.2 coefficients including the per-axle rolling-resistance term
   `qsy1`. It is called by name from `Parameters/vehParams.m`, so it must be on the MATLAB
-  path. Copy `Parameters/tyreParams_Synthetic.m` and edit it — it documents the exact
-  field set required.
+  path. `Parameters/tyreParams_Synthetic.m` documents the exact field set required.
 - **Aero map** — a `.mat` containing a struct with these fields:
 
   | Field | Size | Meaning |
@@ -171,8 +183,10 @@ Provide both files at the paths in the table above.
   result piecewise-polynomially against a residual gate, so a noisy or non-monotone map
   will fail to converge. `Functions/makeSyntheticAeroMap.m` shows a valid example.
 
-Both files are listed in `.gitignore`. On an installation with real supplier data these
-exact paths hold licensed content, so **do not commit them** from either kind of checkout.
+If you replace `Parameters/tyreParams_Zenvo.m` / `Parameters/aeroMap_Tur.mat` with your own
+supplier data, treat them the same way this repository treats the Zenvo set: usable in
+simulation, never reproduced in a report or a paper, and any plot of them normalised or
+unlabelled on the value axis.
 
 ### Step 4 — First run
 
@@ -224,7 +238,7 @@ describe one specific vehicle at one specific circuit, and are not meaningful fo
 | `AeroConfig` | `'Static'` | Aerodynamic configuration — see the [configuration reference](#configuration-reference) |
 | `ATD` | `'Off'` | Active torque distribution on/off |
 | `RWMandate` | `'Off'` | Which actuator law the wing follows (`ActiveRW` only) |
-| `circuit` | `'BCN'` | Track: `'BCN'`, `'NUR'`, or one of four virtual tracks |
+| `circuit` | `'BCN'` | Track name, resolved by `Functions/resolveCircuit.m` — see [Solve any track](#solve-any-track) |
 | `vi` | `79.65` | **Initial velocity [m/s]. The one number most likely to need changing.** See below |
 | `vf` | `nan` | Final velocity; `nan` lets the solver choose |
 | `OPT_ds` | `10` | Collocation step [m]. Smaller = finer mesh, slower, and generally harder to converge |
@@ -322,6 +336,130 @@ save it yourself:
 ```matlab
 save('my_solution.mat', 'data');
 ```
+
+Calling `MLTP.m` by hand this way is the low-level path: one configuration, one entry
+speed, one attempt, nothing saved. For a track you want an answer from — including one
+you just added — use `solveLap`, described next.
+
+---
+
+## Solve any track
+
+`Scripts/solveLap.m` is the single entry point that drives a track from a `.mat` file to a
+saved, converged lap: it resolves the circuit, walks the warm-start ladder, iterates the
+entry speed to closure, and writes the same sidecar `.mat` the Simulink/3D tools read.
+
+```matlab
+info = solveLap('BCN');                              % shipped lap, resolves in seconds
+info = solveLap('Spa');                               % real solve, default config (ARFWr/ATD)
+info = solveLap('Spa', 'ARW', 'ATD');                  % just the free-wing stage
+info = solveLap('Spa', 'DryRun', true);                % what would it do, without solving?
+info = solveLap('BCN', 'ARFWr', 'ATD', 'Force', true); % re-solve, ignore the existing .mat
+info = solveLap('Spa', 'ARFWr', 'ATD', 'Setup', true); % solve, then hand off to the Simulink sim
+```
+
+CasADi must be on the MATLAB path first ([Step 1](#step-1-install-casadi)) — but only for
+a stage that actually solves; a request that resolves to an existing lap needs no CasADi at
+all, which is why `solveLap('BCN')` above returns in seconds on a fresh clone.
+
+### Circuit files
+
+`circuit` is resolved by `Functions/resolveCircuit.m`, not a hardcoded list. It accepts, in
+order: the four built-in virtual tracks (`Hairpin`, `Straight`, `Sturn`, `VirtualTrack`); the
+shipped name aliases (`BCN`, `NUR`); or the basename of any `.mat` in `Circuits/` holding at
+least
+
+- `s` — cumulative distance along the centreline [m], strictly increasing
+- `k` — signed curvature [1/m]
+
+(`x`/`y`, a Cartesian centreline, are optional and used only for plotting — the corridor
+half-width is a model constant, ±4 m, not read from the track file). Drop a new circuit's
+`.mat` into `Circuits/` and call it by its basename, e.g. `Circuits/Silverstone_circuit.mat`
+resolves as `'Silverstone'` — no code edit needed. Three tracks ship: `BCN` (Barcelona-
+Catalunya), `NUR` (Nurburgring), and `Spa` (Circuits/Spa_circuit.mat, Spa-Francorchamps).
+
+`resolveCircuit` prints a geometry report before anything is solved (point count, length,
+sample spacing, minimum radius, curvature roughness, net turn) and refuses a track sampled
+too coarsely to collocate (`resolveCircuit:gridTooCoarse`, `max(diff(s)) > 25` m); a track
+between 10 and 25 m spacing, a tight radius, a rough curvature signal or an unclosed loop
+raises a warning rather than an error — read it, but it's normal for some tracks (Spa's
+hairpin, for instance, is a genuine ~8 m radius, not a digitising fault).
+
+### Entry-speed closure
+
+The lap is **not periodic** — the initial state is an entry-speed *window* (`vi ± 1 m/s` in
+physical units), and the final speed is free. `solveLap` treats a lap as *closed* when the
+solved entry and exit speeds agree, and iterates a fixed point to get there:
+
+1. Solve at the current `vi` (seed 75 m/s by default, `'Vi'`).
+2. Read the solved exit speed `vend = vx(end)`.
+3. Accept if `|vx(1) - vend| <= 'ViTol'` (default 0.5 m/s); otherwise reseed
+   `vi = vend - 1` and re-solve, up to `'ViMaxIter'` times (default 4).
+
+Reseeding with `vend - 1`, not `vend`, is load-bearing: the solver always takes the fastest
+admissible entry in its window, so seeding exactly at `vend` overshoots by the window width
+and the iteration stalls at a ~1 m/s miss forever.
+
+### The warm-start ladder
+
+Each active-aero configuration is warm-started from the one below it — a cold start on a
+pinned or floored wing rarely converges:
+
+```
+ARW  ->  ARWd  ->  ARFWd  ->  ARFWr        (the default chain)
+ARW  ->  AFWd
+```
+
+`'Ladder', 'auto'` (the default) walks that chain from the bottom and **skips any stage
+whose lap `.mat` already exists**, checked in two places — `solutions/report/<circuit>/raw/`
+(solved in this checkout) and `simulink/data/laps/` (shipped with the distribution) — so a
+fresh clone resolves the two shipped circuits in seconds and only a genuinely new track
+solves anything. `'Ladder', 'direct'` skips the chain and cold-starts the requested
+configuration alone from the simplified single-track model (`Scripts/MLTP_initial.m`);
+faster when it converges, not guaranteed to.
+
+### Output
+
+Every solved (or resolved) lap lands at
+
+    solutions/report/<circuit>/raw/run_<circuit>_<config>_<drivetrain>_data.mat
+
+as the same `data`-struct sidecar the Simulink/3D tools read (`setupTrack`, `buildRefPath`,
+`buildTrackRibbon`) — `info.matPath` is this path. Pass `'Setup', true`
+to hand it straight to the Simulink sim afterwards (equivalent to
+`setupTrack(info.matPath, 'Persist', false)` — nothing tracked is ever saved as a side
+effect of solving).
+
+A stage that does not return `Solve_Succeeded` raises `MLTP:notConverged` naming the stage;
+such a lap time is **not** a converged optimum and must not be quoted. See
+[Tuning does not transfer](#tuning-does-not-transfer) for why, and remedies in order: let
+the `vi` loop run its iterations; coarsen `OPT_ds` from 10 to 12–15 m; relax
+`opts.ipopt.tol` from 1e-6 to 1e-5; solve `ARW` first and let the ladder carry it up. The
+first two need no code edit — `solveLap` writes `runOverride.mat` itself, and `userOpts.m`
+reads `OPT_ds` and the IPOPT tolerance from it — but they change the problem being solved,
+so say so when quoting a result obtained that way.
+
+### How long a solve takes
+
+Wall time per entry-speed iteration, one machine, both drivetrains at `ATD`:
+
+| Stage | BCN (466 knots) | NUR (515 knots) |
+|---|---|---|
+| `ARW` | 265 s | 316 s |
+| `ARWd` | 268 s | 341 s |
+| `ARFWd` | 333 s | 370 s |
+| `ARFWr` | 685 s | 571 s |
+
+A full `'Ladder', 'auto'` run from cold multiplies each figure by however many `vi`
+iterations that stage needs to close (up to `'ViMaxIter'`, default 4) and by four stages.
+`Spa` (a genuinely new track, full ladder, `ARW` only) measured 607 s total wall time over
+563 IPOPT iterations, closing on the first `vi` iteration, lap 127.823 s.
+<!-- TODO(spa-ladder): fill in ARWd/ARFWd/ARFWr wall times and lap numbers for Spa once
+     the rest of the ladder has been solved. -->
+
+Lap-time differences below roughly 0.05 s are not resolved by this method (fixed mesh, no
+*ph* refinement, interior-point tolerances) — rank configurations with it, do not quote
+small absolute deltas from it.
 
 ---
 
@@ -464,16 +602,19 @@ used for plotting. **Raw curvature must be pre-processed** — noisy curvature i
 detrimental to the collocation method. The virtual tracks in `userOpts.m` show the pattern:
 build `k`, then smooth it with `simpleMA` before use.
 
-To add a circuit, drop a `.mat` with at least `s` and `k` into `Circuits/` and add a `case`
-to the switch in `userOpts.m`. An unknown circuit name raises `userOpts:unknownCircuit`
-rather than failing obscurely later.
+To add a circuit, drop a `.mat` with at least `s` and `k` into `Circuits/` and call it by
+its basename — see [Solve any track](#solve-any-track) for the resolution rules and the
+geometry checks `Functions/resolveCircuit.m` runs before anything is solved. An unknown
+circuit name raises `resolveCircuit:notFound`, listing what this checkout actually has in
+`Circuits/`, rather than failing obscurely later.
 
-### Do not commit the data files
+### If you swap in your own vehicle data, do not commit it
 
-`Parameters/tyreParams_DoNotPublish.m` and `Parameters/aeroMap_Tur.mat` are gitignored. On
-an installation with real supplier data those exact paths hold licensed content. The
-synthetic route above tells you to create files at precisely those names, so the ignore
-rules protect both kinds of checkout — leave them in place.
+`Parameters/tyreParams_Zenvo.m` and `Parameters/aeroMap_Tur.mat` are tracked in this
+repository and hold the real, publication-cleared Zenvo data — commit changes to them
+freely. If you overwrite either with your **own** supplier data (rather than the shipped
+synthetic template), treat the substitution the way you would any licensed third-party
+data: do not commit it, and check `git status` before pushing.
 
 ---
 
@@ -481,12 +622,14 @@ rules protect both kinds of checkout — leave them in place.
 
 | Path | Written by | Contents |
 |---|---|---|
-| `Data/<circuit>/initialisation/` | `MLTP_initial.m` | Cached warm starts, one `.mat` per solve |
+| `Data/<circuit>/initialisation/` | `MLTP_initial.m`, `solveLap.m` | Cached warm starts, one `.mat` per solve |
 | `solutions/apex/` | `apexSpeeds.m` | Apex-speed CSV export, written as the last step of a run |
+| `solutions/report/<circuit>/raw/run_<circuit>_<config>_<dv>_data.mat` | `solveLap.m` | The full solved-lap sidecar — everything a 3D/Simulink tool needs, see [Solve any track](#solve-any-track) |
 | Simulink Data Inspector | `plotSDI.m` | States, inputs, tyre forces, slips, aero forces, path constraints, track |
 
-Neither `Data/` nor `solutions/` is tracked by git. The solved trajectory itself is **not**
-written to disk automatically — save the workspace `data` struct yourself if you want it.
+Neither `Data/` nor `solutions/` is tracked by git. Calling `MLTP.m` directly does **not**
+save `data` to disk automatically — save the workspace struct yourself if you want it, or
+use `solveLap`, which saves it for you at the path above.
 
 ---
 
@@ -517,19 +660,22 @@ written to disk automatically — save the workspace `data` struct yourself if y
 control law (`ARFWr`) — a real-time/HIL foundation, distinct from the MLTP optimal-control
 solver documented above. It needs MATLAB R2025a + Simulink, Vehicle Dynamics Blockset,
 Simulink 3D Animation (for the Unreal-engine 3D demo) and Computer Vision Toolbox (for the
-on-screen HUD only).
+on-screen HUD only). **It does not need CasADi on the path at all** — only the offline MLTP
+solver does, and the Simulink project does not add it either way.
 
 To open and run it, see `simulink/DEMO.md`, which covers both routes: a live in-model view
 (the car driving with the Unreal viewport riding along) and an offline replay with a burned-in
-instrument overlay. `simulink/DEMO.md` also lists the one-time setup this distribution needs
-before either route works — the same synthetic tyre/aero stand-ins as the offline solver above,
-plus a solved-lap file the track visualisation reads its racing line from (not included; you
-generate it with the offline solver on the synthetic data).
+instrument overlay. It runs the shipped Barcelona lap out of the box, using the real Zenvo
+tyre/aero data — no setup step, same as the offline solver.
 
-Because the shipped tyre and aero data are synthetic, lap times and behaviour from this
-simulation are not comparable to the thesis figures, and — like the offline solver — nothing
-it produces should be read as an active-aerodynamics gain: that comparison lives with the MLTP
-solver alone.
+The simulation is a **tracking exercise**, not a lap-time result: a Stanley-style path
+follower plus a grip-limited speed plan chasing the MLTP racing line, not a re-solve of the
+optimal-control problem. The shipped Barcelona demo closes a lap in 139.394 s against the
+MLTP solver's 102.674 s (`ARFWr`/ATD) for the same track — that gap is the driver/controller
+margin, not an aerodynamics number, and no delta measured in this simulation should ever be
+read as an active-aerodynamics gain: that comparison lives with the MLTP solver alone. The
+3D view, the indicated gear digit and the wheel-spin rendering are display-only and back no
+reported number.
 
 The 3D demo poses a third-party car mesh, "2026 Zenvo Aurora Tur" (and its companion "Agil"
 model, used for the rear wing only) by **Ddiaz Design** on Sketchfab, licensed
@@ -540,16 +686,74 @@ keep those files with the assets if you redistribute.
 
 ---
 
+## Run the sim on a new track
+
+The closed-loop sim, by default, drives whichever lap `Circuits/Barcelona_circuit.mat` +
+`ARFWr`/ATD solved to. `simulink/tools/setupTrack.m` points it at any other solved lap:
+
+```matlab
+info = solveLap('Spa', 'ARFWr', 'ATD', 'Setup', true);   % solve, then set up in one call
+% -- or, with a lap already solved --
+info = setupTrack('solutions/report/Spa/raw/run_Spa_ARFWr_ATD_data.mat');
+```
+
+`setupTrack(matPath)` does everything the closed-loop sim and both 3D routes need for that
+lap:
+
+1. Rebuilds the six `DriverPath` reference arrays (`X`, `Y`, `Psi`, `Kap`, `Vraw`, `N`) in
+   the plant frame (`buildDriverRef`).
+2. Rebuilds the driver's grip-limited speed plan (`buildSpeedPlan`) using the SAME planner
+   calibration validated at Barcelona (ride-height table, load-transfer and `ayCap` knobs
+   read back from `DriverPath`'s own model workspace) — only the new track's curvature and
+   raw speed profile are new. The driver's control gains are untouched; a track the car
+   cannot hold at those gains is a result to look at, not something this function papers
+   over.
+3. Writes a geometry-only ribbon sidecar, `simulink/data/trackRibbon_<TAG>.mat`.
+4. Writes `simulink/data/activeTrack.mat` — the one pack every default-argument sim tool
+   (`buildRefPath`, `buildTrackRibbon`, `runDemoLap`, the in-model Unreal3D actors) resolves
+   through `simulink/tools/activeTrack.m`.
+5. Applies the arrays into `DriverPath`'s model workspace **in memory** — every route,
+   including the green Run button, immediately drives the new track.
+
+By default nothing tracked is written to disk: the model workspace change is in-memory only
+(the dirty flag is restored), so closing `DriverPath` without saving drops back to the
+committed Barcelona bake, and `simulink/startup/projStartup.m` re-applies the pack
+automatically the next time the project is opened. Pass `'Persist', true` only when you
+deliberately want the new track baked into the tracked `DriverPath.slx` / `ARFWr_Sim.slx`
+(this is how the shipped Barcelona bake itself was produced) — it is never a side effect of
+an ordinary `setupTrack` or `solveLap(..., 'Setup', true)` call.
+
+Once set up, run the lap exactly as the shipped demo:
+
+```matlab
+out = runDemoLap();   % StopTime defaults to the active track's own hint, not a hardcoded 150
+```
+
+`runDemoLap`'s `'StopTime'` default follows the active track (`ceil(1.5 * offline lap) + 20`
+seconds, written by `setupTrack`), and every other per-track quantity — rolling-start speed,
+lap-completion index — derives from the same active-track pack, so there is no Barcelona
+constant left to edit by hand.
+
+**Measured**, Nurburgring, real Zenvo data, `ARFWr`/ATD, driver gains untouched from the
+Barcelona calibration: the closed loop **completes** the lap in 145.113 s with a maximum
+path error of 1.962 m and zero off-track excursions — no re-tuning. That is a materially
+easier margin than the shipped Barcelona result (139.394 s lap, 2.301 m max error) because
+Nurburgring is the less demanding of the two circuits for this driver/controller, not
+because anything was adjusted for it.
+
+---
+
 ## Repository layout
 
-    Scripts/      entry points, userOpts.m, vehModel.m, post-processing
-    Parameters/   vehicle, powertrain, synthetic tyre template, synthetic aero map
-    Functions/    model helpers, aero collapse, wing maps, warm-start selection
+    Scripts/      entry points, userOpts.m, vehModel.m, solveLap.m, post-processing
+    Parameters/   vehicle, powertrain, real Zenvo tyre/aero data, synthetic template
+    Functions/    model helpers, aero collapse, wing maps, warm-start selection, resolveCircuit.m
     Circuits/     track .mat files (need s and k; x, y optional for plotting)
 
-Circuits included: **Barcelona-Catalunya** (`BCN`) and **Nurburgring** (`NUR`), plus four
-self-defined virtual tracks (`Hairpin`, `Straight`, `Sturn`, `VirtualTrack`) generated
-directly in `userOpts.m`.
+Circuits included: **Barcelona-Catalunya** (`BCN`), **Nurburgring** (`NUR`) and
+**Spa-Francorchamps** (`Spa`), plus four self-defined virtual tracks (`Hairpin`, `Straight`,
+`Sturn`, `VirtualTrack`) generated directly in `Functions/resolveCircuit.m`. See
+[Solve any track](#solve-any-track) for how to add another.
 
 ### Aerodynamic coefficient data
 
