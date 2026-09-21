@@ -40,11 +40,22 @@ function info = setupTrack(matPath, varargin)
 %                  sidecar but does not touch any model workspace.
 %     'PlanOpts'   struct of buildSpeedPlan overrides, merged ON TOP of the
 %                  knobs read back from DriverPath (see below). Empty default.
+%     'StartAt'    where the lap starts, passed to buildDriverRef. Default
+%                  'auto': keep the solved lap's own s = 0 unless it sits in a
+%                  corner, in which case the start moves into the longest
+%                  straight, because the driver launches with no steer or
+%                  preview history and cannot hold a corner from a standing
+%                  reference. Measured at Spa (start line on the exit of La
+%                  Source): every off-track sample of the lap was inside the
+%                  first 26 m. Pass 'solved' to keep s = 0 regardless, or a
+%                  distance in metres to place the start by hand. Barcelona
+%                  and Nurburgring are unaffected by 'auto' -- their starts
+%                  are already straight, and their bakes are bit-identical.
 %     'SmoothWindow', 'ChordHalfLength'  passed to buildDriverRef; leave alone
 %                  unless you are re-deriving the reference recipe.
 %
 %   info fields: tag, matPath, ribbonPath, packPath, N, lapOffline,
-%   stopTimeHint, drv, vPlan, planInfo, applied, persisted.
+%   stopTimeHint, drv, vPlan, planInfo, applied, persisted, startShift.
 %
 %   =====================================================================
 %   WHAT IS AND IS NOT RE-TUNED
@@ -87,6 +98,8 @@ addParameter(p, 'Apply',           true,  @(v) islogical(v) || isnumeric(v));
 addParameter(p, 'PlanOpts',        struct(), @isstruct);
 addParameter(p, 'SmoothWindow',    5,     @(v) isscalar(v) && isnumeric(v));
 addParameter(p, 'ChordHalfLength', 10,    @(v) isscalar(v) && isnumeric(v));
+addParameter(p, 'StartAt',         'auto', @(v) (ischar(v) || isstring(v)) || ...
+    (isscalar(v) && isnumeric(v) && isfinite(v)));
 parse(p, varargin{:});
 o = p.Results;
 o.Persist = logical(o.Persist);
@@ -130,11 +143,20 @@ fprintf('  sidecar   : %s\n', matPath);
 
 % ---- 1. the DriverPath reference bake ---------------------------------
 drv = buildDriverRef(matPath, 'SmoothWindow', o.SmoothWindow, ...
-                              'ChordHalfLength', o.ChordHalfLength);
+                              'ChordHalfLength', o.ChordHalfLength, ...
+                              'StartAt', o.StartAt);
+% psi1 is unwrapped once the start has been shifted (see buildDriverRef), so
+% it is folded into +-180 deg for the report only -- the stored value is the
+% measured one.
 fprintf('  reference : N = %d pts (1 m grid), start [%.3f %.3f] m, psi1 %.4f deg\n', ...
-    drv.N, drv.origin(1), drv.origin(2), rad2deg(drv.psi1));
+    drv.N, drv.origin(1), drv.origin(2), rad2deg(atan2(sin(drv.psi1), cos(drv.psi1))));
 fprintf('              vRaw %.2f .. %.2f m/s | |kap| max %.5f 1/m (R_min %.1f m)\n', ...
     min(drv.Vraw), max(drv.Vraw), max(abs(drv.Kap)), 1/max(abs(drv.Kap)));
+% The start shift is the one thing a reader of the pack cannot infer from the
+% arrays, so it is printed and stored rather than left implicit.
+fprintf('  start     : %+d m from the solved s = 0 -- %s\n', drv.startShift, drv.startWhy);
+fprintf('              R over the first 100 m %.0f m, entry speed %.2f m/s\n', ...
+    1/max(max(abs(drv.Kap(1:min(100, drv.N)))), eps), drv.Vraw(1));
 
 % ---- 2. the speed plan, on the SHIPPED planner calibration -------------
 load_system('DriverPath');
@@ -204,6 +226,8 @@ active = struct( ...
     'planFW',       planInfo.alphaFW(:), ...
     'lapOffline',   lapOffline, ...
     'stopTimeHint', stopHint, ...
+    'startShift',   drv.startShift, ...
+    'startWhy',     drv.startWhy, ...
     'builtOn',      datestr(now, 'yyyy-mm-dd HH:MM:SS')); %#ok<TNOW1,DATST>
 
 packRel = fullfile('simulink', 'data', 'activeTrack.mat');
@@ -235,7 +259,8 @@ info = struct( ...
     'vPlan',        vPlan(:), ...
     'planInfo',     planInfo, ...
     'applied',      applied, ...
-    'persisted',    o.Persist);
+    'persisted',    o.Persist, ...
+    'startShift',   drv.startShift);
 
 end
 
@@ -269,6 +294,15 @@ M = numel(xc);
 % ribbonOrigin: the racing line's own first point -- what buildTrackRibbon's
 % DEFAULT 'Origin' branch computes from x_full. Precomputed here so the
 % geometry-only sidecar reproduces it with no states on board.
+%
+% It is deliberately NOT moved by a 'StartAt' shift. This is the SOLVE frame's
+% anchor -- the translation-only frame test_trackRibbon section 6 pins and
+% section 9 requires the geometry sidecar and the full sidecar to agree on --
+% and buildTrackRibbon's default branch recomputes it from x_full(4,1), which
+% knows nothing about a start shift. Moving it here would make the two
+% sidecars disagree for a shifted track while helping nothing: the frame the
+% car is actually drawn in is the PLANT frame below, and that one does carry
+% the shift.
 assert(isfield(data, 'x_full') && size(data.x_full, 1) >= 4 && size(data.x_full, 2) == M, ...
     'setupTrack:noRacingLine', ...
     ['setupTrack: data.x_full is absent or does not match the %d-point track grid, so the ' ...

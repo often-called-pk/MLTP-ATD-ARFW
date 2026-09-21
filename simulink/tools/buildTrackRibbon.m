@@ -413,6 +413,29 @@ function [org, psi1] = localPlantStartFrame(matPath, data)
 % precomputed once from the private sidecar by this exact recipe -- is read
 % back from data.plantStart instead: a fixed start pose is not confidential,
 % only the solved states that would otherwise be needed to recompute it are.
+%
+% Before either, the ACTIVE TRACK PACK wins when it was built from this very
+% sidecar. buildDriverRef's 'StartAt' can start the lap somewhere other than
+% the solved s = 0 (Spa: the solved start is mid-corner), and the pack records
+% the pose the DriverPath arrays were actually baked with. A fresh default
+% call here would re-derive 'auto' and agree on every track the default was
+% used for -- but it would silently disagree with the driver, by the length of
+% the shift, for a track set up with an explicit 'StartAt'. The ribbon has to
+% be drawn in the frame the car is driving in, so the pack is the authority.
+pk = [];
+try
+    [pkPath, ~, pk] = activeTrack();
+catch
+    pkPath = '';
+end
+if ~isempty(pk) && isfield(pk, 'drv') && isstruct(pk.drv) && ...
+        all(isfield(pk.drv, {'origin', 'psi1'})) && ...
+        strcmpi(fullfile(pkPath), fullfile(matPath))
+    org  = pk.drv.origin(:).';
+    psi1 = pk.drv.psi1;
+    return
+end
+
 refReq = {'x_full', 's_full', 't_opt'};
 if all(isfield(data, refReq))
     drv  = buildDriverRef(matPath);
