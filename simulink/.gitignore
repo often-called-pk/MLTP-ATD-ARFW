@@ -1,0 +1,23 @@
+work/
+slprj/
+*.slxc
+*.autosave
+*.asv
+codegen/
+# Simulink Test bookkeeping for the EPHEMERAL harnesses that the model_test
+# Gherkin runner builds and discards (see simulink/tests/aeroecu.feature).
+# Regenerated next to the model on every run; tracks nothing we author.
+*_harnessInfo.xml
+*.slx.original
+
+# Third-party car assets (simulink/viz/assets/). The two Zenvo folders ARE
+# tracked -- 14 MB and 18 MB of mesh + textures, and the visualisation is useless
+# without them. One exception, and it covers two generated folders:
+#
+#    model_textures/ and model.fbm/ are GENERATED: the FBX loader and the FBX SDK
+#    each extract the model's embedded textures next to it on first load.
+#    Byte-identical to the textures already committed beside the model, and
+#    rewritten on every load, so committing them would only make the tree dirty
+#    every time a mesh is opened.
+viz/assets/*/model_textures/
+viz/assets/*/model.fbm/
