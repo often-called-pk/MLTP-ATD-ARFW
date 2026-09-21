@@ -11,6 +11,15 @@ function arfwr_startup()
 %   -- addPath(proj, ...) errors with "not a folder in the project root
 %   folder" -- so they are added here instead.
 %
+%   Scripts/ was NOT on this list until 2026-09-21, for no better reason than
+%   that nothing under simulink/ needed it when the list was written: the
+%   folder then held only the run-style MLTP entry points, which the real-time
+%   model does not call. Scripts/solveLap.m and Scripts/exportLapSidecar.m --
+%   the front door of the whole solve -> sim workflow -- arrived later, and
+%   without this folder they simply did not resolve for anyone who opened
+%   simulink/ARFWr_RT.prj on its own. There is no shadowing reason to leave it
+%   out: no file name under Scripts/ collides with any under simulink/.
+%
 %   The repo root is derived from this file's own location
 %   (<repo>/simulink/startup/arfwr_startup.m), never from PWD or a bare-name
 %   path lookup: the repo is on the user's saved MATLAB path, so a bare name
@@ -20,7 +29,7 @@ function arfwr_startup()
 thisDir  = fileparts(mfilename('fullpath'));            % <repo>\simulink\startup
 repoRoot = fileparts(fileparts(thisDir));               % <repo>
 
-extFolders = {'Parameters', 'Functions', 'Circuits'};
+extFolders = {'Parameters', 'Functions', 'Circuits', 'Scripts'};
 
 for k = 1:numel(extFolders)
     f = fullfile(repoRoot, extFolders{k});
