@@ -984,7 +984,7 @@ if vp.ActAero == 1 && vp.rwMandate == 3
     % against a 30 deg control range - the rows were all satisfied and the law was
     % nonetheless doing nothing. A satisfied constraint is not evidence of a binding one.
     data.rwVel.bandMedian  = median(data.rwVel.band);
-    data.rwVel.bandP90     = prctile(data.rwVel.band, 90);
+    data.rwVel.bandP90     = pctile(data.rwVel.band, 90);   % Functions/pctile.m, no Stats Toolbox
     data.rwVel.fracBand1   = mean(data.rwVel.band <= 1.0);
     data.rwVel.fracErr1    = mean(abs(data.rwVel.err) <= 1.0);
     if any(tight)

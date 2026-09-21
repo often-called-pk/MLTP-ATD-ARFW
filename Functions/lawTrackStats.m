@@ -50,7 +50,7 @@ st.errRMS     = sqrt(mean(err.^2));
 st.errMaxAbs  = max(abs(err));
 st.occ        = mean(abs(err) <= band + tolDeg);
 st.bandMedian = median(band);
-st.bandP90    = prctile(band, 90);
+st.bandP90    = pctile(band, 90);          % Functions/pctile.m - prctile without the toolbox
 st.fracBand1  = mean(band <= 1.0);
 st.fracErr1   = mean(abs(err) <= 1.0);
 
