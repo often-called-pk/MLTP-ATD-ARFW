@@ -83,10 +83,15 @@ function info = solveLap(circuit, varargin)
 %         .status    IPOPT return status of the final stage
 %         .iters .lap .vi .vend .miss .closed
 %         .stages    1-by-n struct array, one per ladder stage: .name .action
-%                    .status .iters .lap .miss .closed .viIters .file
+%                    .status .iters .lap .miss .closed .viIters .file .solvedOn
 %         .track     the geometry report from resolveCircuit (N, length, ds, gap,
 %                    R_min, max|dk/ds|, net turn, warnings raised)
-%         .solvedOn  timestamp
+%         .solvedOn  when the lap being returned was SOLVED. For a lap solved in
+%                    this call it is the stamp written into the .mat; for one
+%                    resolved off disk it is that file's own data.solvedOn, and
+%                    '' when the file predates the stamp. Never a fabricated
+%                    "now" - a lap from last year must not read as a fresh solve.
+%         .resolvedOn when THIS call ran, always set.
 %
 %   ---------------------------------------------------------------------------
 %   PREREQUISITES
@@ -179,6 +184,30 @@ function info = solveLap(circuit, varargin)
 %   Running a solve therefore CLEARS THE BASE WORKSPACE, exactly as MLTP.m always
 %   has, and MLTP.m's leading clc wipes the command window - which is why the
 %   summary table is printed at the end rather than as it goes.
+%
+%   ---------------------------------------------------------------------------
+%   THE BASE WORKSPACE
+%   ---------------------------------------------------------------------------
+%   Because MLTP.m clears it, solveLap SNAPSHOTS the base workspace before the
+%   first stage that really solves and puts it back on the way out - on a normal
+%   return and on an error alike, through onCleanup. After the ladder the base
+%   workspace holds what it held before, not the several hundred variables the
+%   solver left behind.
+%   This is not cosmetic. With the Simulink project open, base carries act, inrt,
+%   sus, vp, pt and hudGear, which mask expressions inside Plant resolve by name;
+%   without the restore the first runDemoLap after a solve dies on 'Error
+%   evaluating parameter Iveh' - reported by Simulink only as "Error due to
+%   multiple causes" - and the cure looked like reopening the project.
+%   Two limits, both deliberate. GLOBALS are recorded but not re-created: MLTP's
+%   own `clear global` destroys the global itself, so re-assigning the value
+%   would leave an ordinary variable wearing a global's name. And anything
+%   evalin cannot hand over by value is listed in a solveLap:baseNotRestored
+%   warning rather than failing the solve - MLTP would have cleared it anyway.
+%   A run with nothing to solve takes no snapshot and touches nothing.
+%   The RESULT is not in the base workspace and never was: it is the returned
+%   `info` and the saved .mat at info.matPath. Driving this from a script
+%   (matlab -batch "info = solveLap('Spa')") is unaffected - `info` is assigned
+%   in base after the function returns, which is after the restore.
 %   MLTP's own trailing post-processing (SDI logging, plotSDI, the circuit-map
 %   figure, apexSpeeds) runs inside that call. If any of it throws - the usual
 %   cause is a headless -batch session with no display - the solve is NOT
@@ -345,7 +374,8 @@ info = struct('circuit', circuit, 'config', config, 'drivetrain', drivetrain, ..
               'ladder', opt.Ladder, 'matPath', '', 'source', '', 'status', '', ...
               'iters', NaN, 'lap', NaN, 'vi', NaN, 'vend', NaN, 'miss', NaN, ...
               'closed', false, ...
-              'solvedOn', char(datetime('now','Format','yyyy-MM-dd HH:mm:ss')), ...
+              'solvedOn', '', ...
+              'resolvedOn', char(datetime('now','Format','yyyy-MM-dd HH:mm:ss')), ...
               'dryRun', opt.DryRun);
 % Assigned rather than passed to struct(): a struct-valued (and especially an
 % EMPTY struct-array-valued) field inside a struct() call is exactly the kind of
@@ -372,6 +402,13 @@ end
 %  Walk the ladder
 %% ---------------------------------------------------------------------------
 casadiChecked = false;
+
+% Base-workspace protection. Taken LAZILY, immediately before the first stage
+% that really solves, and put back by an onCleanup on every exit path - see
+% THE BASE WORKSPACE in the header. A run with nothing to solve never touches
+% the base workspace at all, which is what keeps solveLap('BCN') sub-second.
+baseSnap    = [];
+baseRestore = [];  %#ok<NASGU> the onCleanup object must outlive this line
 
 % Entry-speed seed carried down the ladder. It starts at 'Vi' (the 75 m/s default
 % unless the caller said otherwise) and, when 'Vi' was NOT given, is replaced after
@@ -421,6 +458,17 @@ for i = 1:numel(chain)
             i, numel(chain), cfg.name, viSeed, viSrc, dataFile);
 
     else
+        % ---- the base workspace is about to be destroyed ------------------
+        %      MLTP.m opens with `clc; clear; clear global;`, so the first real
+        %      solve wipes whatever the caller had in base - including the
+        %      Simulink project's act/inrt/sus/hudGear and its own vp/pt, whose
+        %      absence makes the next runDemoLap die on a mask expression.
+        %      Snapshot now, restore on the way out.
+        if isempty(baseSnap)
+            baseSnap    = snapshotBase();
+            baseRestore = onCleanup(@() restoreBase(baseSnap));
+        end
+
         % ---- CasADi is only needed once there is real work ----------------
         if ~casadiChecked
             assert(exist('casadi.SX','class') == 8, 'solveLap:noCasADi', ...
@@ -470,7 +518,7 @@ info.matPath = last.file;
 if strcmp(last.action,'skip'), info.source = 'existing'; else, info.source = 'solved'; end
 info.status = last.status;  info.iters = last.iters;  info.lap = last.lap;
 info.vi     = last.vi;      info.vend  = last.vend;   info.miss = last.miss;
-info.closed = last.closed;
+info.closed = last.closed;  info.solvedOn = last.solvedOn;
 
 printSummary(info);
 
@@ -579,6 +627,7 @@ d.circuit    = circuit;
 d.config     = cfg.name;
 d.drivetrain = dv;
 d.solvedOn   = char(datetime('now','Format','yyyy-MM-dd HH:mm:ss'));
+st.solvedOn  = d.solvedOn;      % the same stamp that goes into the file
 
 outDir = fileparts(dataFile);
 if ~exist(outDir,'dir'), mkdir(outDir); end
@@ -644,6 +693,70 @@ catch ME
     return
 end
 d = runMLTPResult();
+end
+
+function snap = snapshotBase()
+%SNAPSHOTBASE Copy the base workspace by value, so it can be put back after MLTP.
+%  Only PLAIN variables are captured. A name `whos` reports as GLOBAL is
+%  recorded but not copied: MLTP.m's own `clear global` destroys the global
+%  itself, and assigning the old value back would create an ordinary base
+%  variable wearing a global's name - bound to nothing, and indistinguishable
+%  from the real thing until something wrote through it. Anything evalin cannot
+%  hand over is listed in .skipped and reported once on restore rather than
+%  failing the solve; it would have been wiped by MLTP either way.
+snap = struct('names', {{}}, 'vals', {{}}, 'globals', {{}}, 'skipped', {{}});
+try
+    w = evalin('base', 'whos');
+catch
+    return
+end
+for i = 1:numel(w)
+    nm = w(i).name;
+    if w(i).global
+        snap.globals{end+1} = nm;
+        continue
+    end
+    try
+        v = evalin('base', nm);
+    catch
+        snap.skipped{end+1} = nm;
+        continue
+    end
+    snap.names{end+1} = nm;
+    snap.vals{end+1}  = v;
+end
+end
+
+function restoreBase(snap)
+%RESTOREBASE Put the snapshot back and drop everything the solve left behind.
+%  Order matters: clear first, then assign. MLTP leaves several hundred
+%  variables in base, and a caller who looks at `who` after a solve should see
+%  their own workspace, not the solver's scratch.
+if isempty(snap) || ~isstruct(snap), return, end
+try
+    present = evalin('base', 'who');
+    drop    = setdiff(present(:)', snap.names);
+    % Cleared in blocks: `clear` takes names as arguments, and a single command
+    % naming ~700 of them is a needlessly long string to build and parse.
+    for k = 1:100:numel(drop)
+        j = k:min(k + 99, numel(drop));
+        evalin('base', ['clear ' strjoin(drop(j), ' ')]);
+    end
+    for i = 1:numel(snap.names)
+        assignin('base', snap.names{i}, snap.vals{i});
+    end
+    if ~isempty(snap.skipped)
+        warning('solveLap:baseNotRestored', ...
+            ['these base-workspace variables could not be copied before the solve and are ' ...
+             'gone (MLTP.m clears the base workspace): %s.'], strjoin(snap.skipped, ', '));
+    end
+catch ME
+    warning('solveLap:baseRestoreFailed', ...
+        ['could not restore the base workspace after the solve (%s: %s). The lap itself is ' ...
+         'unaffected - it is in the returned info and in the saved .mat - but the base ' ...
+         'workspace still holds MLTP''s leftovers. Re-open the Simulink project (or re-run ' ...
+         'its startup) before using the sim tools.'], ME.identifier, ME.message);
+end
 end
 
 function d = runMLTPResult()
@@ -921,7 +1034,7 @@ function st = newStage()
 %  what makes info.stages(end+1) = st legal struct-array concatenation.
 st = struct('name', '', 'action', '', 'status', '', 'iters', NaN, 'lap', NaN, ...
             'vi', NaN, 'vend', NaN, 'miss', NaN, 'closed', false, ...
-            'viIters', 0, 'file', '');
+            'viIters', 0, 'file', '', 'solvedOn', '');
 end
 
 function s = emptyStageArray()
@@ -946,6 +1059,12 @@ try
         st.vi = vx(1); st.vend = vx(end); st.miss = abs(vx(1)-vx(end));
     end
     st.closed = getfielddef(d, 'closed', st.miss <= 0.5);
+    % When this lap was SOLVED, straight out of the file. A lap saved before
+    % solveLap existed carries no stamp, and '' is the honest answer: inventing
+    % "now" here is how a file from last year gets read as a fresh solve.
+    st.solvedOn = getfielddef(d, 'solvedOn', '');
+    if ~(ischar(st.solvedOn) || isstring(st.solvedOn)), st.solvedOn = ''; end
+    st.solvedOn = char(st.solvedOn);
 catch ME
     warning('solveLap:unreadableLap', ...
         'could not read %s (%s: %s) - reporting the path only.', f, ME.identifier, ME.message);

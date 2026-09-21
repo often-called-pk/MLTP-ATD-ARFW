@@ -59,6 +59,25 @@ stopT    = p.Results.StopTime;
 step     = p.Results.Step;
 paceRate = p.Results.Pace;
 
+% ---- the parameter structs the models resolve by NAME in base ----------
+% Plant's mask expressions (Iveh out of inrt, body and tyre values out of vp/pt,
+% rates out of sus), the wing actuator (act) and ARFWr_Sim's own InitFcn all
+% resolve these in the BASE workspace. When one is missing, Simulink reports
+% "Error due to multiple causes" wrapped around "Error evaluating parameter
+% 'Iveh' in 'Plant/Body 6DOF'", which says nothing about where the struct went.
+% The two ways it goes missing are a session that never opened the project and a
+% solve that cleared base (Scripts/MLTP.m opens with `clear`). Say so here
+% instead of letting the model say something else.
+needBase = {'vp', 'pt', 'sus', 'act', 'inrt'};
+missBase = needBase(~ismember(needBase, evalin('base', 'who')));
+if ~isempty(missBase)
+    error('runDemoLap:noBaseParams', ...
+        ['runDemoLap: the base workspace is missing %s. The Plant and driver masks resolve ' ...
+         'these structs by name, so the simulation cannot start without them. Open the ' ...
+         'project (simulink/ARFWr_RT.prj), or run simulink/startup/projStartup.m in an ' ...
+         'already-open session, then try again.'], strjoin(missBase, ', '));
+end
+
 mdl = 'ARFWr_Sim';
 load_system('DriverPath'); load_system('Plant'); load_system('AeroECU'); load_system(mdl);
 
