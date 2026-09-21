@@ -46,8 +46,11 @@ function info = solveLap(circuit, varargin)
 %   ---------------------------------------------------------------------------
 %   NAME-VALUE OPTIONS
 %   ---------------------------------------------------------------------------
-%   'Vi'         Entry-speed seed for the closure loop, m/s. Default 75, which is
-%                what both shipped circuits were solved from. See CLOSURE below.
+%   'Vi'         Entry-speed seed for the closure loop, m/s, applied to EVERY
+%                ladder stage. Left unset, only a stage with nothing to learn from
+%                starts at 75: each later stage inherits the previous stage's own
+%                exit speed, which usually closes it on the first pass instead of
+%                the second. See CLOSURE below.
 %   'ViTol'      Closure tolerance, m/s. Default 0.5.
 %   'ViMaxIter'  Maximum closure iterations per stage. Default 4.
 %   'Ladder'     'auto' (default) solves the warm-start chain leading to `config`,
@@ -114,6 +117,16 @@ function info = solveLap(circuit, varargin)
 %   Running out of iterations is a warning, not an error - the lap is still a
 %   converged optimum for its own boundary conditions; it is the closure claim
 %   that fails. info.closed records it.
+%
+%   Stages after the first do not start from scratch. Every rung of the ladder is
+%   the same car on the same track, so their closed entry speeds agree to a few
+%   tenths, and the seed is carried forward: a stage starts at vend - 1 of the
+%   nearest already-solved stage - just solved, or read back out of its lap .mat
+%   when it was skipped - and falls back to 75 only when there is no such stage.
+%   Without it every rung repeated the same discovery: start at 75, miss closure
+%   by ~6 m/s, re-solve. On Spa that was one wasted full solve on each of the four
+%   rungs. Passing 'Vi' explicitly turns the carry-forward off, because an explicit
+%   seed is a deliberate choice and is honoured on every stage.
 %
 %   ---------------------------------------------------------------------------
 %   THE WARM-START LADDER
@@ -259,6 +272,12 @@ opt = struct('Vi', VI_SEED, 'ViTol', VI_TOL, 'ViMaxIter', VI_MAXIT, ...
 if mod(numel(args), 2) ~= 0
     error('solveLap:badPairs', 'Name-Value arguments must come in pairs.');
 end
+% An EXPLICIT 'Vi' is honoured on every stage; only an unset one is carried
+% forward from the previous stage's exit speed (see CLOSURE in the header). The
+% flag is raised here rather than inferred later by comparing opt.Vi with the
+% default, which would silently disable the carry-forward for anyone who passed
+% 'Vi', 75.
+viGiven = false;
 for i = 1:2:numel(args)
     nm = char(args{i});
     j  = find(strcmpi(nm, OPTNAMES), 1);
@@ -267,6 +286,7 @@ for i = 1:2:numel(args)
             nm, strjoin(OPTNAMES, ', '));
     end
     opt.(OPTNAMES{j}) = args{i+1};
+    viGiven = viGiven || strcmp(OPTNAMES{j}, 'Vi');
 end
 validateattributes(opt.Vi,        {'numeric'}, {'scalar','real','finite','positive'}, mfilename, 'Vi');
 validateattributes(opt.ViTol,     {'numeric'}, {'scalar','real','finite','positive'}, mfilename, 'ViTol');
@@ -352,6 +372,15 @@ end
 %  Walk the ladder
 %% ---------------------------------------------------------------------------
 casadiChecked = false;
+
+% Entry-speed seed carried down the ladder. It starts at 'Vi' (the 75 m/s default
+% unless the caller said otherwise) and, when 'Vi' was NOT given, is replaced after
+% every stage by that stage's own exit speed stepped back one window width - the
+% same fixed-point step the closure loop takes inside a stage. viSrc is only for
+% the log line, so a reader can see where a seed came from.
+viSeed = opt.Vi;
+viSrc  = 'default';
+
 for i = 1:numel(chain)
     cfg     = configDef(chain{i});
     isFinal = (i == numel(chain));
@@ -362,10 +391,10 @@ for i = 1:numel(chain)
                         sprintf('run_%s_%s_%s_data.mat', circuit, cfg.name, drivetrain));
     found    = findSidecar(repoRoot, reportRoot, circuit, cfg.name, drivetrain);
 
-    % ---- already on disk, or not needed because the target already is? ----
-    %      'Force' applies to the REQUESTED config only: a satisfied prerequisite
-    %      is never re-solved just because the final stage is being redone.
     if resolveOnly || (~isempty(found) && ~(isFinal && opt.Force))
+        % ---- already on disk, or not needed because the target already is --
+        %      'Force' applies to the REQUESTED config only: a satisfied
+        %      prerequisite is never re-solved just because the final stage is.
         st.action = 'skip';
         st.file   = found;
         if isempty(found)
@@ -374,54 +403,63 @@ for i = 1:numel(chain)
         else
             fprintf('solveLap: [%d/%d] %-6s skip - %s\n', i, numel(chain), cfg.name, found);
         end
-        if isFinal && ~isempty(found)
+        % Read the headline numbers back for the final stage (so a fully skipped
+        % run still reports what it resolved to) and for any skipped prerequisite
+        % of a stage that will actually solve (so its exit speed can seed it).
+        % When nothing is going to solve, prerequisites are left unread: that is
+        % what keeps `solveLap('BCN')` on a complete checkout sub-second.
+        if ~isempty(found) && (isFinal || ~resolveOnly)
             st = fillFromFile(st, found);
         end
-        info.stages(end+1) = st;
-        continue
-    end
 
-    % ---- dry run: report the intent and move on ---------------------------
-    if opt.DryRun
+    elseif opt.DryRun
+        % ---- dry run: report the intent and move on -----------------------
         st.action = 'solve';
         st.file   = dataFile;
-        fprintf('solveLap: [%d/%d] %-6s WOULD SOLVE -> %s\n', i, numel(chain), cfg.name, dataFile);
-        info.stages(end+1) = st;
-        continue
-    end
+        st.vi     = viSeed;      % no solve, so this is the plan, not a result
+        fprintf('solveLap: [%d/%d] %-6s WOULD SOLVE at vi = %.3f m/s (%s) -> %s\n', ...
+            i, numel(chain), cfg.name, viSeed, viSrc, dataFile);
 
-    % ---- CasADi is only needed once there is real work --------------------
-    if ~casadiChecked
-        assert(exist('casadi.SX','class') == 8, 'solveLap:noCasADi', ...
-            ['CasADi is not on the MATLAB path, and nothing in this repo adds it. Run\n' ...
-             '    addpath(''<your>\\casadi-3.x-windows64-matlabXXXX'')\n' ...
-             'and call solveLap again. (Stages whose lap .mat already exists need no ' ...
-             'CasADi; this one does.)']);
-        casadiChecked = true;
-    end
-
-    % ---- warm-start cache for this stage ----------------------------------
-    % 'direct' deliberately skips this: MLTP falls back to Scripts\MLTP_initial.m,
-    % whose simplified 3-row control cache is accepted by latestInit for every
-    % config, and MLTP seeds a flat 0 deg wing from it.
-    if strcmp(opt.Ladder,'auto') && ~strcmp(cfg.seedMode,'none')
-        msg = ensureSeed(repoRoot, reportRoot, circuit, drivetrain, cfg, RW_SLEW);
-        if ~isempty(msg)
-            error('solveLap:noSeed', ...
-                ['cannot start stage %s for %s/%s: %s\nSolve %s for this track and ' ...
-                 'drivetrain first, or pass ''Ladder'',''direct'' to cold-start from the ' ...
-                 'simplified model.'], cfg.name, circuit, drivetrain, msg, cfg.seedFrom);
+    else
+        % ---- CasADi is only needed once there is real work ----------------
+        if ~casadiChecked
+            assert(exist('casadi.SX','class') == 8, 'solveLap:noCasADi', ...
+                ['CasADi is not on the MATLAB path, and nothing in this repo adds it. Run\n' ...
+                 '    addpath(''<your>\\casadi-3.x-windows64-matlabXXXX'')\n' ...
+                 'and call solveLap again. (Stages whose lap .mat already exists need no ' ...
+                 'CasADi; this one does.)']);
+            casadiChecked = true;
         end
+
+        % ---- warm-start cache for this stage ------------------------------
+        % 'direct' deliberately skips this: MLTP falls back to Scripts\
+        % MLTP_initial.m, whose simplified 3-row control cache is accepted by
+        % latestInit for every config, and MLTP seeds a flat 0 deg wing from it.
+        if strcmp(opt.Ladder,'auto') && ~strcmp(cfg.seedMode,'none')
+            msg = ensureSeed(repoRoot, reportRoot, circuit, drivetrain, cfg, RW_SLEW);
+            if ~isempty(msg)
+                error('solveLap:noSeed', ...
+                    ['cannot start stage %s for %s/%s: %s\nSolve %s for this track and ' ...
+                     'drivetrain first, or pass ''Ladder'',''direct'' to cold-start from the ' ...
+                     'simplified model.'], cfg.name, circuit, drivetrain, msg, cfg.seedFrom);
+            end
+        end
+
+        % ---- solve --------------------------------------------------------
+        %      Tolerance and iteration cap come from `opt` (the user's
+        %      overrides), not from the VI_* constants - those are only the
+        %      defaults `opt` was seeded with. VI_DBACK is not exposed: it is the
+        %      width of the entry-speed window built into MLTP.m, not a knob.
+        fprintf('solveLap: [%d/%d] %-6s entry-speed seed %.3f m/s (%s)\n', ...
+            i, numel(chain), cfg.name, viSeed, viSrc);
+        st = solveStage(cfg, circuit, drivetrain, ATDstr, ovrFile, dataFile, viSeed, ...
+                        opt.ViTol, opt.ViMaxIter, VI_DBACK, i, numel(chain));
     end
 
-    % ---- solve ------------------------------------------------------------
-    %      Tolerance and iteration cap come from `opt` (the user's overrides),
-    %      not from the VI_* constants - those are only the defaults `opt` was
-    %      seeded with. VI_DBACK is not exposed: it is the width of the
-    %      entry-speed window built into MLTP.m, not a tuning knob.
-    st = solveStage(cfg, circuit, drivetrain, ATDstr, ovrFile, dataFile, opt, ...
-                    opt.ViTol, opt.ViMaxIter, VI_DBACK, i, numel(chain));
     info.stages(end+1) = st;
+    if ~viGiven
+        [viSeed, viSrc] = carryVi(st, viSeed, viSrc, VI_DBACK);
+    end
 end
 
 %% ---------------------------------------------------------------------------
@@ -460,13 +498,13 @@ end
 %% ===========================================================================
 %  One stage: the vi closure loop around a single MLTP solve
 %% ===========================================================================
-function st = solveStage(cfg, circuit, dv, ATDstr, ovrFile, dataFile, opt, tol, maxit, dback, i, n)
+function st = solveStage(cfg, circuit, dv, ATDstr, ovrFile, dataFile, viStart, tol, maxit, dback, i, n)
 st        = newStage();
 st.name   = cfg.name;
 st.action = 'solve';
 st.file   = dataFile;
 
-vi     = opt.Vi;
+vi     = viStart;
 closed = false;
 
 for it = 1:maxit
@@ -550,6 +588,28 @@ fprintf('solveLap: [%d/%d] %-6s saved -> %s  [%s, lap %.3f s, miss %.3f, closed 
     i, n, cfg.name, dataFile, st.status, st.lap, st.miss, st.closed);
 
 closeCircuitMap();
+end
+
+
+function [vi, src] = carryVi(st, vi, src, dback)
+%CARRYVI Hand the entry-speed seed down to the next rung of the ladder.
+%  Every rung is the same car on the same track, so their closed entry speeds
+%  agree to a few tenths: a rung that has been solved (or was read back off disk)
+%  already knows where the fixed point is, and the next one should start there
+%  rather than rediscover it from 75 m/s at the cost of a whole extra solve.
+%  The step is the closure loop's own - vend - dback, never vend - because MLTP
+%  always takes the fastest admissible entry in the vi +/- dback window, so
+%  reseeding with vend leaves the miss stuck at dback for ever.
+%  A stage that did not close is still used: its exit speed belongs to a converged
+%  optimum and is far nearer the fixed point than the cold seed. A stage with no
+%  usable exit speed - a dry run, or a lap .mat too old or too damaged to read one
+%  out of - leaves the seed exactly as it was.
+v = st.vend;
+if ~(isnumeric(v) && isscalar(v) && isfinite(v)) || v <= dback
+    return
+end
+vi  = v - dback;
+src = sprintf('from %s, vend %.3f', st.name, v);
 end
 
 
