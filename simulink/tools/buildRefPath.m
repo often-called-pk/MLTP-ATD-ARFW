@@ -43,17 +43,21 @@ function ref = buildRefPath(matPath)
 %     ref.vx         [Nx1]  longitudinal speed vx(s) [m/s]
 %     ref.t          [Nx1]  lap time t(s) [s]
 %     ref.psi        [Nx1]  path heading psi(s) [rad], unwrapped
-%     ref.closed     logical, true if the RAW (pre-resample) endpoint gap <= 5 m
+%     ref.closed     logical, true if the RAW (pre-resample) endpoint gap is
+%                    within the closure tolerance: 2 x the circuit file's own
+%                    sample spacing (data.track0.s), floored at 5 m
 %     ref.closeGap   [m]    RAW endpoint gap norm(xy(end,:)-xy(1,:))
 %     ref.matPath    resolved absolute path of the sidecar actually loaded
 %
 %   Errors with a fieldnames() dump on any missing required field. Warns
-%   (does not error) if the endpoint gap exceeds 5 m.
+%   (does not error) if the endpoint gap exceeds that closure tolerance -- see
+%   the comment at the check itself for why the tolerance follows the circuit's
+%   sampling instead of being a flat 5 m.
 %
-%   Path resolution is repo-root anchored via mfilename('fullpath') (same
-%   idiom as Functions/apexCsvPath.m) -- NEVER a bare-name load: a folder
-%   holding old runs can sit on the MATLAB path (genpath) and shadow a bare
-%   filename with a stale one.
+%   Path resolution is repo-root anchored via mfilename('fullpath'), the same
+%   idiom every path-building file here uses -- NEVER a bare-name load: a
+%   folder holding old runs can sit on the MATLAB path (genpath) and shadow a
+%   bare filename with a stale one.
 
 if nargin < 1 || isempty(matPath)
     matPath = activeTrack();       % single owner of "which track is active"
@@ -115,11 +119,28 @@ end
 xy = [xLine(:), yLine(:)];
 
 % -- closed-loop check (on the RAW, pre-resample line) -------------------
+% The tolerance is 2 x the CIRCUIT FILE's own sample spacing, floored at 5 m,
+% not a flat 5 m. A circuit .mat stores one lap as N samples that do NOT repeat
+% the start point, so its last sample sits one grid step short of the finish
+% line and the reconstructed line inherits that as an endpoint gap of about one
+% ds: 5.026 m on the shipped Nurburgring lap and 8.807 m on Spa, both on 5 m
+% grids, against Barcelona's 0.034 m on a 1 m grid. That is the sampling of the
+% track file, not an open loop, and warning about it on the happy path trains
+% the reader to ignore the one message that would matter. Two grid steps still
+% catches a genuinely broken loop - a mis-stitched or truncated circuit misses
+% by tens or hundreds of metres, never by one sample.
+dsCircuit = NaN;
+if isfield(data, 'track0') && isfield(data.track0, 's') && numel(data.track0.s) > 2
+    dsCircuit = median(diff(data.track0.s(:)));
+end
+gapTol   = max(5, 2*dsCircuit);            % NaN-safe: max(5, NaN) is 5
 closeGap = norm(xy(end, :) - xy(1, :));
-closed   = closeGap <= 5;
+closed   = closeGap <= gapTol;
 if ~closed
     warning('buildRefPath:notClosed', ...
-        'buildRefPath: racing-line endpoint gap is %.3f m (> 5 m threshold).', closeGap);
+        ['buildRefPath: racing-line endpoint gap is %.3f m, more than the %.3f m closure ' ...
+         'tolerance (circuit sample spacing %.3f m). The lap does not come back to where ' ...
+         'it started.'], closeGap, gapTol, dsCircuit);
 end
 
 % -- arc length along the RACING LINE (not data.track.s / data.s_full) ---
